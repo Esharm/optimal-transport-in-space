@@ -8,4 +8,4 @@ pip install opencv-python
 ```
 
 
-For some sampling / reconstruction techniques, download the [ehtim library](https://github.com/achael/eht-imaging/).
+For some sampling / reconstruction functions used in our files, download the [ehtim library](https://github.com/achael/eht-imaging/).
