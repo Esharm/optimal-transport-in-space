@@ -43,11 +43,6 @@ for path in sorted(folder.glob('*.png')):
     im.append(eht_img)
 eht = eh.array.load_txt('EHTII.txt')
 # %%
-# Regrid the image for display
-for image in im:
-    imdisp = image.regrid_image(120*eh.RADPERUAS, 512)
-
-# %%
 # simulation parameters
 tint_sec = 60  # Integration time in seconds, 
 tadv_sec = 600 # Advance time between scans
@@ -116,7 +111,7 @@ result = di.dynamical_imaging(
     d1='vis',
     alpha_d1=100,
     flux_List     = flux_list,
-    entropy1='tv2',
+    entropy1={"l1": 1, "tv": 0.1},
     alpha_s1=50.0,
 
     R_dt={'alpha': 5, 'metric': 'SymKL', 'p': 2.0, 'sigma_dt': 0.0},
