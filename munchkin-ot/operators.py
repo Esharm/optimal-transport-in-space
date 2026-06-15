@@ -2,25 +2,20 @@ import numpy as np
 import numpy.fft as fft
 
 class FourierSampler:
-    """
-    Forward: image -> sparse Fourier measurements
-    Adjoint: visibilities -> dirty image
-    """
     def __init__(self, mask):
-        # Ensure mask is a boolean or float array of 1s and 0s
         self.mask = mask.astype(float)
 
     def forward(self, x):
-        # norm="ortho" keeps energy scaled 1:1 with pixel values
         return self.mask * fft.fft2(x, norm="ortho")
 
     def adjoint(self, y):
-        # CRITICAL FIX: The visibility y is ALREADY masked from the forward step.
-        # Multiplying by the mask again compounds noise errors.
         return np.real(fft.ifft2(y, norm="ortho"))
 
+# ============================================================
+# FIRST ORDER GRADIENT & DIVERGENCE (For TV)
+# ============================================================
 def grad(u):
-    """ Forward finite differences with Neumann boundary conditions """
+    """ Forward differences for gradient """
     ux = np.zeros_like(u)
     uy = np.zeros_like(u)
     ux[:, :-1] = u[:, 1:] - u[:, :-1]
@@ -28,7 +23,7 @@ def grad(u):
     return np.stack([ux, uy])
 
 def div(p):
-    """ Adjoint of grad operator (backward differences) """
+    """ Backward differences for divergence """
     px, py = p
     dx = np.zeros_like(px)
     dy = np.zeros_like(py)
@@ -42,7 +37,56 @@ def div(p):
     dy[-1, :] = -py[-2, :]
     return dx + dy
 
+# ============================================================
+# SECOND ORDER HESSIAN & ADJOINT HESSIAN 
+# ============================================================
+def hessian(u):
+    """
+    Computes second order finite differences.
+    Returns: [4, H, W] tensor corresponding to (Dxx, Dyy, Dxy, Dyx)
+    """
+    H, W = u.shape
+    dx = np.zeros_like(u)
+    dy = np.zeros_like(u)
+    dx[:, :-1] = u[:, 1:] - u[:, :-1]
+    dy[:-1, :] = u[1:, :] - u[:-1, :]
+    
+    dxx = np.zeros_like(u)
+    dxy = np.zeros_like(u)
+    dxx[:, :-1] = dx[:, 1:] - dx[:, :-1]
+    dxy[:-1, :] = dx[1:, :] - dx[:-1, :]
+    
+    dyx = np.zeros_like(u)
+    dyy = np.zeros_like(u)
+    dyx[:, :-1] = dy[:, 1:] - dy[:, :-1]
+    dyy[:-1, :] = dy[1:, :] - dy[:-1, :]
+    
+    return np.stack([dxx, dyy, dxy, dyx])
+
+def div2(Q):
+    """
+    Adjoint operator of the Hessian (Second divergence).
+    Q: [4, H, W] matrix fields corresponding to (Qxx, Qyy, Qxy, Qyx)
+    """
+    qxx, qyy, qxy, qyx = Q
+    
+    def div_x(p):
+        d = np.zeros_like(p)
+        d[:, 1:-1] = p[:, 1:-1] - p[:, :-2]
+        d[:, 0] = p[:, 0]
+        d[:, -1] = -p[:, -2]
+        return d
+
+    def div_y(p):
+        d = np.zeros_like(p)
+        d[1:-1, :] = p[1:-1, :] - p[:-2, :]
+        d[0, :] = p[0, :]
+        d[-1, :] = -p[-2, :]
+        return d
+
+    # Apply backward finite differences sequentially matching the forward step
+    return div_x(div_x(qxx)) + div_y(div_y(qyy)) + div_y(div_x(qxy)) + div_x(div_y(qyx))
+
 def random_uv_mask(shape, density=0.1, seed=0):
     rng = np.random.default_rng(seed)
-    mask = rng.random(shape) < density
-    return mask.astype(float)
+    return (rng.random(shape) < density).astype(float)
