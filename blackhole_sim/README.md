@@ -8,9 +8,13 @@ git clone https://github.com/iAART/aart.git
 
 Create environment:
 
+```
 python3.11 -m venv .venv-aart
 source .venv-aart/bin/activate
+```
 
 Install dependencies:
 
+```
 pip install -r aart/requirements.txt
+```
