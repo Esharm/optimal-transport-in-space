@@ -1,13 +1,26 @@
-# virtual environment
-.venv/
-
-# Python cache
+# Python
 __pycache__/
 *.pyc
 
-# OS files
+# virtual environments
+.venv/
+.venv-*/
+venv/
+env/
+
+# large generated data
+blackhole_sim/aart/Results/
+blackhole_sim/aart/*.h5
+blackhole_sim/data/
+blackhole_sim/aart/
+blackhole_sim/.venv-aart/
+reconstruction_tests/data/
+*.npy
+*.npz
+*.mp4
+*.avi
+*.mov
+
+# OS
 .DS_Store
 Thumbs.db
-
-# notebooks
-.ipynb_checkpoints/
