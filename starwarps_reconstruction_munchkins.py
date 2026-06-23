@@ -19,12 +19,12 @@ importlib.reload(di)
 plt.close('all')
 
 ttype = 'direct'
-outpath = './tutorial_results/munchkin'
+outpath = './tutorial_results/blackhole'
 if not os.path.exists(os.path.dirname(outpath)):
     os.makedirs(os.path.dirname(outpath))
 # %%
 # Load the image and the telescope array
-folder = Path('munchkin_frames')
+folder = Path('/Users/emma.jia/Desktop/space_imaging/optimal-transport-in-space/blackhole_sim/data/aart_frames')
 
 ra  = 12.513728717168174   # hours
 dec = 12.391123306919757   # degrees
@@ -43,21 +43,25 @@ for path in sorted(folder.glob('*.png')):
 eht = eh.array.load_txt('EHTII.txt')
 # %%
 # simulation parameters
-tint_sec = 60
-tadv_sec = 600
-tstart_hr = 0
-tstop_hr = 24
-total_hrs = 24
-bw_hz = 4.e9
-n_frames = 8
-slot_hrs = total_hrs / n_frames
+tint_sec = 10
+tadv_sec = 10
+bw_hz = 2.e9
+n_frames = 15
+
+frame_duration_sec = 120        # each frame observed
+gap_sec = 0                  # gap between frames
+slot_sec = frame_duration_sec + gap_sec  
+
+total_sec = n_frames * slot_sec
+total_hrs = total_sec / 3600
 # %%
 obs_list = []
 valid_images = []
 
 for i in range(n_frames):
-    t0 = i * slot_hrs
-    t1 = (i + 1) * slot_hrs
+    t0 = (i * slot_sec) / 3600                          # start of this frame's observation window
+    t1 = (i * slot_sec + frame_duration_sec) / 3600     # 20 seconds later
+
     frame_idx = int((i + 0.5) * len(im) / n_frames)
     image_frame = im[frame_idx]
     try:
@@ -71,7 +75,19 @@ for i in range(n_frames):
         print(f"Frame {i} skipped: {e}")
 
 # %%
-NPIX = 32
+obs_outpath = './tutorial_results/blackhole/observations'
+os.makedirs(obs_outpath, exist_ok=True)
+
+for i, obs in enumerate(obs_list):
+    obs.save_uvfits(f'{obs_outpath}/frame_{i:02d}.uvfits')
+# %%
+obs_outpath = './tutorial_results/blackhole/observations2'
+os.makedirs(obs_outpath, exist_ok=True)
+
+for i, obs in enumerate(obs_list):
+    np.savez(f'{obs_outpath}/frame_{i:02d}.npz', data=obs.data)
+# %%
+NPIX = 64
 npixels = NPIX**2
 
 fwhm_prior = 50 * eh.RADPERUAS
@@ -106,9 +122,8 @@ avg_rg = avg_image.regrid_image(fov, NPIX)
 meanImg = [avg_rg.copy()]
 # %%
 # ---- Build the image covariance (spatial correlation of the prior) ----
-# powerDropoff controls how fast spatial correlations fall off
-# frac=1/2 means the std dev of the prior is ~half the peak flux
-imCov   = [sw.gaussImgCovariance_2(meanImg[0], powerDropoff=2.0, frac=1.0/4.0)]
+pixel_var = 1e-6  # tune this
+imCov   = [np.diag(np.full(npixels, pixel_var))]
 
 # ---- Noise covariance: how much intensity change is allowed between frames ----
 # Larger variance_img_diff -> more temporal variation allowed
@@ -123,8 +138,8 @@ init_x, init_y, flowbasis_x, flowbasis_y, initTheta = \
 warp_method    = 'phase'
 measurement    = {'vis': 1}      # can also try {'amp':1, 'cphase':1}
 interiorPriors = True            # use interior (Kalman-smoother) priors
-numLinIters    = 5               # linearised iterations per E-step (>1 for non-linear data)
-nIters         = 20              # number of EM iterations
+numLinIters    = 3               # linearised iterations per E-step (>1 for non-linear data)
+nIters         = 10              # number of EM iterations
 reassign_apxImgs = False         # if True, recompute linearisation points each EM iter
 
 # L-BFGS-B options for the M-step
@@ -247,4 +262,29 @@ plt.show()
 for i, (obs, recon) in enumerate(zip(obs_list, expVal_t)):
     chisq = obs.chisq(recon, dtype='vis', ttype='direct')
     print(f"Frame {i}: chi-sq = {chisq:.3f}")
+# %%
+import os
+from PIL import Image as PILImage
+import numpy as np
+
+out_dir = './tutorial_results/blackhole/frames_bw2'
+os.makedirs(out_dir, exist_ok=True)
+
+for i, recon in enumerate(expVal_t):
+    arr = recon.imarr()
+    
+    # Normalize to 0–255
+    arr_norm = arr - arr.min()
+    if arr_norm.max() > 0:
+        arr_norm = arr_norm / arr_norm.max()
+    arr_uint8 = (arr_norm * 255).astype(np.uint8)
+    
+    # Flip vertically (ehtim uses lower-left origin)
+    arr_uint8 = np.flipud(arr_uint8)
+    
+    img = PILImage.fromarray(arr_uint8, mode='L')  # 'L' = grayscale
+    img.save(f'{out_dir}/frame_{i:02d}.png')
+    print(f"Saved frame {i}")
+
+print(f"All frames saved to {out_dir}")
 # %%
