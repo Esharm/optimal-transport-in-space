@@ -74,8 +74,8 @@ class Config(LoaderConfig):
     # lost the ring morphology under sparse per-frame data. TV is off by default
     # because the averaged prior was already produced with L1+TV and extra TV
     # did not visibly change the result.
-    prior_weight: float = 5e-2
-    tv_weight: float = 0.0
+    prior_weight: float = 4e-2
+    tv_weight: float = 1e-5
 
     # Spatial TV+prior initialization.
     spatial_inner_iters: int = 25

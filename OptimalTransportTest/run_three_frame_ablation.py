@@ -38,7 +38,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
 @dataclass(frozen=True)
 class Config:
-    obs_folder: Path = PROJECT_ROOT / "blackhole_sim_testing" / "observations_npz"
+    obs_folder: Path = PROJECT_ROOT / "blackhole_sim_testing" / "observations_3min_npz"
     prior_path: Path = PROJECT_ROOT / "blackhole_sim" / "time_avg_static_recon_128pix.png"
     output_root: Path = Path("three_frame_ablation")
     frames: int = 3
