@@ -1,7 +1,11 @@
-"""TV+prior initialization followed by residual signed OT/ADMM.
+"""Radial-prior spatial reconstruction followed by residual signed OT/ADMM.
 
-FULL_15_FRAME_VIDEO_COMPARISON_VERSION. This main2.py is intentionally configured
-to run all first 15 observation frames and export ground-truth comparison videos.
+This main2.py is intentionally configured to run all first 15 observation
+frames, initialize from a radially averaged static reconstruction, and write
+only minimal outputs:
+
+    main2_results/results.npz
+    main2_results/comparison_gt_spatial_ot.mp4
 
 This is the current experimental pipeline:
 
@@ -9,7 +13,7 @@ This is the current experimental pipeline:
 
            D_k(u_k) + alpha TV(u_k) + (mu/2)||u_k - p||_2^2,
 
-       where p is the averaged-image prior.
+       where p is the radialized averaged-image prior.
 
     2. Use those non-identical spatial reconstructions as the initialization
        for an ADMM solve over the full image u_k with residual
@@ -41,20 +45,12 @@ from pathlib import Path
 
 import cv2
 import numpy as np
-import pandas as pd
 from PIL import Image
 
 from admm import ResidualSignedOTADMM
-from io_utils import load_prior_image, save_frames, images_to_video
+from io_utils import load_prior_image
 from run_three_frame_ablation import Config as LoaderConfig
 from run_three_frame_ablation import load_data_terms, objective_terms, relative_change
-from run_tv_prior_delta_visualization import (
-    pairwise_delta_differences,
-    pairwise_distance_rows,
-    save_montage,
-    save_run_outputs,
-    save_signed_frames,
-)
 from solvers import TotalVariationRegularizer
 
 
@@ -64,7 +60,8 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 @dataclass(frozen=True)
 # FULL_15_FRAME_VIDEO_COMPARISON_VERSION
 class Config(LoaderConfig):
-    output_root: Path = Path("full_15_frame_residual_ot_comparison")
+    prior_path: Path = PROJECT_ROOT / "radial_outputs" / "time_avg_static_recon_128pix_radial_round.png"
+    output_root: Path = Path("main2_results")
     gt_folder: Path = PROJECT_ROOT / "blackhole_sim" / "data" / "aart_frames"
     fps: int = 5
 
@@ -212,59 +209,6 @@ def run_residual_signed_ot_from_initialization(u_init, data_terms, prior, cfg):
     return u_ot, history, elapsed, converged
 
 
-def save_ot_difference(spatial, ot, prior, names, cfg):
-    stage_dir = cfg.output_root / "03_ot_minus_spatial"
-    stage_dir.mkdir(parents=True, exist_ok=True)
-
-    diff = ot - spatial
-    spatial_delta = spatial - prior[None, :, :]
-    ot_delta = ot - prior[None, :, :]
-    delta_diff = ot_delta - spatial_delta
-    pairwise_diff, pairwise_labels = pairwise_delta_differences(delta_diff, names)
-
-    common_abs = float(np.max(np.abs(diff)) + 1e-12)
-    save_signed_frames(diff, stage_dir / "ot_minus_spatial_signed", names=names, common_abs=common_abs)
-    save_signed_frames(delta_diff, stage_dir / "delta_change_signed", names=names, common_abs=common_abs)
-    save_montage(
-        diff,
-        stage_dir / "montage_ot_minus_spatial_signed.png",
-        [Path(name).stem for name in names],
-        signed=True,
-        common_abs=common_abs,
-    )
-
-    pairwise_abs = float(np.max(np.abs(pairwise_diff)) + 1e-12)
-    save_signed_frames(
-        pairwise_diff,
-        stage_dir / "pairwise_delta_change_difference_signed",
-        names=pairwise_labels,
-        common_abs=pairwise_abs,
-    )
-    save_montage(
-        pairwise_diff,
-        stage_dir / "montage_pairwise_delta_change_difference_signed.png",
-        pairwise_labels,
-        signed=True,
-        common_abs=pairwise_abs,
-    )
-
-    rows = pairwise_distance_rows(spatial_delta, "spatial_delta")
-    rows += pairwise_distance_rows(ot_delta, "ot_delta")
-    rows += pairwise_distance_rows(delta_diff, "ot_minus_spatial_delta")
-    pd.DataFrame(rows).to_csv(stage_dir / "difference_distances.csv", index=False)
-
-    np.savez_compressed(
-        stage_dir / "ot_minus_spatial.npz",
-        spatial=spatial,
-        ot=ot,
-        ot_minus_spatial=diff,
-        spatial_delta=spatial_delta,
-        ot_delta=ot_delta,
-        delta_change=delta_diff,
-    )
-
-
-
 def _normalize01_local(x):
     x = np.asarray(x, dtype=np.float64)
     return (x - x.min()) / (x.max() - x.min() + 1e-12)
@@ -315,19 +259,6 @@ def load_ground_truth_frames(folder: Path, names, resize):
     return np.stack(frames), [path.name for path in selected]
 
 
-def save_sequence_videos(frames, root: Path, names, fps: int, prefix: str):
-    root.mkdir(parents=True, exist_ok=True)
-    each_dir = root / f"{prefix}_frames_each_norm"
-    global_dir = root / f"{prefix}_frames_global_norm"
-    save_frames(frames, each_dir, names=names, normalize_each=True)
-    save_frames(frames, global_dir, names=names, normalize_each=False)
-    try:
-        images_to_video(each_dir, root / f"{prefix}_each_norm.mp4", fps=fps)
-        images_to_video(global_dir, root / f"{prefix}_global_norm.mp4", fps=fps)
-    except Exception as exc:
-        print(f"Video export failed for {prefix}: {exc}")
-
-
 def _to_uint8(frame, vmin=None, vmax=None):
     frame = np.asarray(frame, dtype=np.float64)
     if vmin is None:
@@ -358,19 +289,21 @@ def make_labeled_panel(images, labels, vmin=None, vmax=None):
 
 
 def save_comparison_video(gt, spatial, ot, root: Path, fps: int):
-    """Save GT | spatial init | residual OT videos for visual comparison."""
+    """Save one GT | spatial init | residual OT comparison video."""
     if gt is None:
-        return
+        print("No ground truth available; skipping comparison video.")
+        return None
+
     root.mkdir(parents=True, exist_ok=True)
     K = min(len(gt), len(spatial), len(ot))
 
-    # Per-frame normalization makes morphology/motion visible.
+    output_path = root / "comparison_gt_spatial_ot.mp4"
     first = make_labeled_panel(
         [_normalize01_local(gt[0]), _normalize01_local(spatial[0]), _normalize01_local(ot[0])],
-        ["ground truth", "spatial", "residual OT"],
+        ["GT", "spatial no OT", "OT"],
     )
     writer = cv2.VideoWriter(
-        str(root / "gt_vs_spatial_vs_residual_ot_each_norm.mp4"),
+        str(output_path),
         cv2.VideoWriter_fourcc(*"mp4v"),
         fps,
         (first.shape[1], first.shape[0]),
@@ -379,53 +312,78 @@ def save_comparison_video(gt, spatial, ot, root: Path, fps: int):
     for k in range(1, K):
         frame = make_labeled_panel(
             [_normalize01_local(gt[k]), _normalize01_local(spatial[k]), _normalize01_local(ot[k])],
-            ["ground truth", "spatial", "residual OT"],
+            ["GT", "spatial no OT", "OT"],
         )
         writer.write(frame)
     writer.release()
 
-    # Global normalization is more honest about brightness variation.
-    global_min = float(min(gt[:K].min(), spatial[:K].min(), ot[:K].min()))
-    global_max = float(max(gt[:K].max(), spatial[:K].max(), ot[:K].max()))
-    first = make_labeled_panel(
-        [gt[0], spatial[0], ot[0]],
-        ["ground truth", "spatial", "residual OT"],
-        vmin=global_min,
-        vmax=global_max,
-    )
-    writer = cv2.VideoWriter(
-        str(root / "gt_vs_spatial_vs_residual_ot_global_norm.mp4"),
-        cv2.VideoWriter_fourcc(*"mp4v"),
-        fps,
-        (first.shape[1], first.shape[0]),
-    )
-    writer.write(first)
-    for k in range(1, K):
-        frame = make_labeled_panel(
-            [gt[k], spatial[k], ot[k]],
-            ["ground truth", "spatial", "residual OT"],
-            vmin=global_min,
-            vmax=global_max,
-        )
-        writer.write(frame)
-    writer.release()
+    return output_path
 
 
-def write_ground_truth_comparison_outputs(cfg, names, spatial, ot):
-    video_root = cfg.output_root / "04_video_comparison"
+def load_ground_truth_for_comparison(cfg, names):
     gt, gt_names = load_ground_truth_frames(
         cfg.gt_folder,
         names,
         resize=(cfg.image_width, cfg.image_height),
     )
-    if gt is None:
-        return
+    return gt, gt_names
 
-    save_sequence_videos(gt, video_root, gt_names, cfg.fps, "ground_truth")
-    save_sequence_videos(spatial, video_root, names, cfg.fps, "spatial_init")
-    save_sequence_videos(ot, video_root, names, cfg.fps, "residual_signed_ot_final")
-    save_comparison_video(gt, spatial, ot, video_root, cfg.fps)
-    np.savez_compressed(video_root / "gt_spatial_ot_sequences.npz", gt=gt, spatial=spatial, ot=ot)
+
+def calibrate_prior_brightness(prior_shape, data_terms):
+    """Scale a prior shape to the least-squares brightness preferred by data."""
+    numerator = 0.0
+    denominator = 0.0
+    for term in data_terms:
+        predicted = term.sampler.forward(prior_shape)
+        numerator += float(np.real(np.vdot(predicted, term.f)))
+        denominator += float(np.vdot(predicted, predicted).real)
+
+    scale = max(numerator / (denominator + 1e-30), 0.0)
+    return scale * prior_shape, {
+        "prior_brightness_scale": scale,
+        "prior_scale_fit_numerator": numerator,
+        "prior_scale_fit_denominator": denominator,
+    }
+
+
+def sequence_pairwise_diagnostics(label, frames):
+    frames = np.asarray(frames, dtype=np.float64)
+    rows = {}
+    if len(frames) < 2:
+        return rows
+    diffs = frames[1:] - frames[:-1]
+    frame_norms = np.linalg.norm(frames.reshape(len(frames), -1), axis=1)
+    diff_norms = np.linalg.norm(diffs.reshape(len(diffs), -1), axis=1)
+    rows[f"{label}_adjacent_l2_min"] = float(diff_norms.min())
+    rows[f"{label}_adjacent_l2_max"] = float(diff_norms.max())
+    rows[f"{label}_adjacent_l2_mean"] = float(diff_norms.mean())
+    rows[f"{label}_adjacent_relative_l2_mean"] = float(
+        np.mean(diff_norms / (frame_norms[:-1] + 1e-12))
+    )
+    rows[f"{label}_global_min"] = float(frames.min())
+    rows[f"{label}_global_max"] = float(frames.max())
+    rows[f"{label}_total_brightness_min"] = float(frames.sum(axis=(1, 2)).min())
+    rows[f"{label}_total_brightness_max"] = float(frames.sum(axis=(1, 2)).max())
+    return rows
+
+
+def data_force_diagnostics(prior, data_terms):
+    gradients = np.stack([term.gradient(prior) for term in data_terms])
+    losses = np.asarray([term.loss(prior) for term in data_terms])
+    dirty = np.stack([term.dirty_image() for term in data_terms])
+    gradient_norms = np.linalg.norm(gradients.reshape(len(data_terms), -1), axis=1)
+    dirty_norms = np.linalg.norm(dirty.reshape(len(data_terms), -1), axis=1)
+    return {
+        "data_loss_at_prior_min": float(losses.min()),
+        "data_loss_at_prior_max": float(losses.max()),
+        "data_loss_at_prior_mean": float(losses.mean()),
+        "data_gradient_at_prior_l2_min": float(gradient_norms.min()),
+        "data_gradient_at_prior_l2_max": float(gradient_norms.max()),
+        "data_gradient_at_prior_l2_mean": float(gradient_norms.mean()),
+        "dirty_image_l2_min": float(dirty_norms.min()),
+        "dirty_image_l2_max": float(dirty_norms.max()),
+        "dirty_image_global_max": float(dirty.max()),
+    }
 
 
 def summary_row(label, u, data_terms, prior, cfg, elapsed, converged):
@@ -440,6 +398,60 @@ def summary_row(label, u, data_terms, prior, cfg, elapsed, converged):
     }
 
 
+def serializable_config(cfg):
+    values = asdict(cfg)
+    return {
+        key: str(value) if isinstance(value, Path) else value
+        for key, value in values.items()
+    }
+
+
+def json_default(value):
+    if isinstance(value, Path):
+        return str(value)
+    if isinstance(value, np.integer):
+        return int(value)
+    if isinstance(value, np.floating):
+        return float(value)
+    if isinstance(value, np.bool_):
+        return bool(value)
+    if isinstance(value, np.ndarray):
+        return value.tolist()
+    raise TypeError(f"Object of type {type(value).__name__} is not JSON serializable")
+
+
+def save_results_file(
+    cfg,
+    names,
+    prior,
+    spatial,
+    ot,
+    gt,
+    gt_names,
+    spatial_history,
+    ot_history,
+    spatial_summary,
+    ot_summary,
+    diagnostics,
+):
+    output_path = cfg.output_root / "results.npz"
+    np.savez_compressed(
+        output_path,
+        names=np.asarray(names),
+        gt_names=np.asarray(gt_names),
+        prior=prior,
+        spatial=spatial,
+        ot=ot,
+        gt=np.asarray([]) if gt is None else gt,
+        config_json=np.asarray(json.dumps(serializable_config(cfg), indent=2, default=json_default)),
+        summary_json=np.asarray(json.dumps([spatial_summary, ot_summary], indent=2, default=json_default)),
+        diagnostics_json=np.asarray(json.dumps(diagnostics, indent=2, default=json_default)),
+        spatial_history_json=np.asarray(json.dumps(spatial_history, indent=2, default=json_default)),
+        ot_history_json=np.asarray(json.dumps(ot_history, indent=2, default=json_default)),
+    )
+    return output_path
+
+
 def main():
     cfg = Config()
     if cfg.frames != 15 or cfg.frame_indices is not None:
@@ -449,17 +461,9 @@ def main():
         )
     cfg.output_root.mkdir(parents=True, exist_ok=True)
 
-    serializable = asdict(cfg)
-    serializable.update({
-        key: str(value)
-        for key, value in serializable.items()
-        if isinstance(value, Path)
-    })
-    (cfg.output_root / "config.json").write_text(json.dumps(serializable, indent=2))
-
     print("=" * 100)
-    print("FULL 15-FRAME RESIDUAL-OT VIDEO COMPARISON MAIN2.PY")
-    print("This is main2.py: frames=15, frame_indices=None, video comparison enabled.")
+    print("MAIN2.PY: RADIAL PRIOR -> SPATIAL RECONSTRUCTION -> RESIDUAL OT")
+    print("Outputs are intentionally minimal: results.npz and one comparison video.")
     print("=" * 100)
     print("Objective being tested")
     print("=" * 100)
@@ -473,13 +477,18 @@ def main():
     data_terms, names = load_data_terms(cfg)
     print(f"Loaded {len(data_terms)} observation frames for the 15-frame video run:")
     print("  " + ", ".join(str(name) for name in names))
-    prior = load_prior_image(
+    prior_shape = load_prior_image(
         cfg.prior_path,
         resize=(cfg.image_width, cfg.image_height),
         normalize=True,
     )
+    print(f"Using radial initialization/prior: {cfg.prior_path}")
+    prior, prior_scale_diagnostics = calibrate_prior_brightness(prior_shape, data_terms)
+    print(
+        "Calibrated radial prior brightness by least-squares scale "
+        f"{prior_scale_diagnostics['prior_brightness_scale']:.6e}"
+    )
     u_prior = np.repeat(prior[None, :, :], len(data_terms), axis=0)
-    save_frames(u_prior, cfg.output_root / "00_prior", names=names, normalize_each=True)
 
     print("\n" + "=" * 100)
     print("1. Spatial TV+prior initialization")
@@ -490,22 +499,15 @@ def main():
         prior,
         cfg,
     )
-    pd.DataFrame(spatial_history).to_csv(
-        cfg.output_root / "01_spatial_tv_prior_init_history.csv",
-        index=False,
+    spatial_summary = summary_row(
+        "spatial_tv_prior_init",
+        u_spatial,
+        data_terms,
+        prior,
+        cfg,
+        spatial_elapsed,
+        spatial_converged,
     )
-    spatial_summary = save_run_outputs(
-        label="01_spatial_tv_prior_init",
-        u=u_spatial,
-        history=spatial_history,
-        names=names,
-        prior=prior,
-        data_terms=data_terms,
-        prior_weight=cfg.prior_weight,
-        cfg=cfg,
-    )
-    spatial_summary["seconds"] = spatial_elapsed
-    spatial_summary["converged"] = spatial_converged
 
     print("\n" + "=" * 100)
     print("2. Residual signed OT initialized from spatial TV+prior")
@@ -516,50 +518,51 @@ def main():
         prior,
         cfg,
     )
-    ot_stage_dir = cfg.output_root / "02_residual_signed_ot_from_spatial_init"
-    ot_stage_dir.mkdir(parents=True, exist_ok=True)
-    pd.DataFrame(ot_history).to_csv(ot_stage_dir / "history.csv", index=False)
-    ot_summary = save_run_outputs(
-        label="02_residual_signed_ot_from_spatial_init",
-        u=u_ot,
-        history=ot_history,
-        names=names,
-        prior=prior,
-        data_terms=data_terms,
-        prior_weight=cfg.prior_weight,
-        cfg=cfg,
+    ot_summary = summary_row(
+        "residual_signed_ot_from_spatial_init",
+        u_ot,
+        data_terms,
+        prior,
+        cfg,
+        ot_elapsed,
+        ot_converged,
     )
-    ot_summary["seconds"] = ot_elapsed
-    ot_summary["converged"] = ot_converged
-
-    save_ot_difference(u_spatial, u_ot, prior, names, cfg)
 
     print("\n" + "=" * 100)
-    print("3. Writing 15-frame videos and GT comparison")
+    print("3. Writing minimal outputs")
     print("=" * 100)
-    write_ground_truth_comparison_outputs(cfg, names, u_spatial, u_ot)
+    gt, gt_names = load_ground_truth_for_comparison(cfg, names)
+    video_path = save_comparison_video(gt, u_spatial, u_ot, cfg.output_root, cfg.fps)
+    diagnostics = {
+        **prior_scale_diagnostics,
+        **data_force_diagnostics(prior, data_terms),
+        **sequence_pairwise_diagnostics("prior_init", u_prior),
+        **sequence_pairwise_diagnostics("spatial", u_spatial),
+        **sequence_pairwise_diagnostics("ot", u_ot),
+    }
+    results_path = save_results_file(
+        cfg=cfg,
+        names=names,
+        prior=prior,
+        spatial=u_spatial,
+        ot=u_ot,
+        gt=gt,
+        gt_names=gt_names,
+        spatial_history=spatial_history,
+        ot_history=ot_history,
+        spatial_summary=spatial_summary,
+        ot_summary=ot_summary,
+        diagnostics=diagnostics,
+    )
 
-    summary = pd.DataFrame([
-        summary_row("01_spatial_tv_prior_init", u_spatial, data_terms, prior, cfg, spatial_elapsed, spatial_converged),
-        summary_row("02_residual_signed_ot_from_spatial_init", u_ot, data_terms, prior, cfg, ot_elapsed, ot_converged),
-    ])
-    for extra in (spatial_summary, ot_summary):
-        for key, value in extra.items():
-            if key not in summary.columns:
-                summary[key] = np.nan
-        summary.loc[summary["stage"] == extra["stage"], list(extra.keys())] = list(extra.values())
-
-    summary.to_csv(cfg.output_root / "summary.csv", index=False)
-
-    print("\n" + summary.to_string(index=False))
+    print("\nSummary:")
+    print(json.dumps([spatial_summary, ot_summary], indent=2, default=json_default))
+    print("\nDiagnostics:")
+    print(json.dumps(diagnostics, indent=2, default=json_default))
     print(f"\nOutputs saved to {cfg.output_root.resolve()}")
-    print("\nInspect:")
-    print("  01_spatial_tv_prior_init/montage_delta_signed.png")
-    print("  02_residual_signed_ot_from_spatial_init/montage_delta_signed.png")
-    print("  03_ot_minus_spatial/montage_ot_minus_spatial_signed.png")
-    print("  03_ot_minus_spatial/montage_pairwise_delta_change_difference_signed.png")
-    print("  04_video_comparison/gt_vs_spatial_vs_residual_ot_each_norm.mp4")
-    print("  04_video_comparison/gt_vs_spatial_vs_residual_ot_global_norm.mp4")
+    print(f"  Results: {results_path}")
+    if video_path is not None:
+        print(f"  Comparison video: {video_path}")
 
 
 if __name__ == "__main__":
