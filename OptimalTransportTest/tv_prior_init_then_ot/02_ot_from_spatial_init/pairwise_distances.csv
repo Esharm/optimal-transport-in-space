@@ -1,0 +1,10 @@
+label,i,j,relative_distance,stage,prior_weight
+reconstruction,0,1,0.006322360667614027,02_ot_from_spatial_init,0.01
+reconstruction,0,2,0.013021916354325832,02_ot_from_spatial_init,0.01
+reconstruction,1,2,0.006890632307160236,02_ot_from_spatial_init,0.01
+delta,0,1,0.0012115438961045916,02_ot_from_spatial_init,0.01
+delta,0,2,0.002493905809534781,02_ot_from_spatial_init,0.01
+delta,1,2,0.001318987963568379,02_ot_from_spatial_init,0.01
+pairwise_delta_difference,0,1,0.35601597774252947,02_ot_from_spatial_init,0.01
+pairwise_delta_difference,0,2,0.17467910608006337,02_ot_from_spatial_init,0.01
+pairwise_delta_difference,1,2,0.31768657304192527,02_ot_from_spatial_init,0.01

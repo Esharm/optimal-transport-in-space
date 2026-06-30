@@ -1,0 +1,10 @@
+label,i,j,relative_distance,stage,prior_weight
+reconstruction,0,1,0.010384581187403695,tv_prior_5em02,0.05
+reconstruction,0,2,0.020267374786756668,tv_prior_5em02,0.05
+reconstruction,1,2,0.010658702952944358,tv_prior_5em02,0.05
+delta,0,1,0.006454779616444476,tv_prior_5em02,0.05
+delta,0,2,0.012561554296876224,tv_prior_5em02,0.05
+delta,1,2,0.006586475711546353,tv_prior_5em02,0.05
+pairwise_delta_difference,0,1,0.34679096174410023,tv_prior_5em02,0.05
+pairwise_delta_difference,0,2,0.2692335498558948,tv_prior_5em02,0.05
+pairwise_delta_difference,1,2,0.3367096015246813,tv_prior_5em02,0.05

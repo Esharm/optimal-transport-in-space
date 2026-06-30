@@ -1,0 +1,17 @@
+kind,i,j,value,stage,framework,prior_weight
+frame_pair_distance,0,1,0.00426310153534489,tv_prior_2em03,tv,0.002
+frame_pair_distance,0,2,0.008834011391613538,tv_prior_2em03,tv,0.002
+frame_pair_distance,1,2,0.004730572417403451,tv_prior_2em03,tv,0.002
+cross_data_loss,0,0,0.021742909848833647,tv_prior_2em03,tv,0.002
+cross_data_loss,0,1,0.021733638160503416,tv_prior_2em03,tv,0.002
+cross_data_loss,0,2,0.021744979149930406,tv_prior_2em03,tv,0.002
+cross_data_loss,1,0,0.021738260790622042,tv_prior_2em03,tv,0.002
+cross_data_loss,1,1,0.021728123977818543,tv_prior_2em03,tv,0.002
+cross_data_loss,1,2,0.02173845141267694,tv_prior_2em03,tv,0.002
+cross_data_loss,2,0,0.021718417897625103,tv_prior_2em03,tv,0.002
+cross_data_loss,2,1,0.02170732038311113,tv_prior_2em03,tv,0.002
+cross_data_loss,2,2,0.021716287116674532,tv_prior_2em03,tv,0.002
+mean_pairwise_frame_distance,-1,-1,0.0059425617814539596,tv_prior_2em03,tv,0.002
+own_data_loss_mean,-1,-1,0.021729106981108904,tv_prior_2em03,tv,0.002
+cross_data_loss_mean,-1,-1,0.021730177965744838,tv_prior_2em03,tv,0.002
+cross_minus_own_data_loss_mean,-1,-1,1.0709846359341357e-06,tv_prior_2em03,tv,0.002

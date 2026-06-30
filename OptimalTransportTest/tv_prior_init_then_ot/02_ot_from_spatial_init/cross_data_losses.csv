@@ -1,0 +1,10 @@
+image_index,data_index,loss,stage,prior_weight
+0,0,0.3648475282527032,02_ot_from_spatial_init,0.01
+0,1,0.3670121631870061,02_ot_from_spatial_init,0.01
+0,2,0.369866246033042,02_ot_from_spatial_init,0.01
+1,0,0.3637285638273929,02_ot_from_spatial_init,0.01
+1,1,0.36570384604078343,02_ot_from_spatial_init,0.01
+1,2,0.3683127618131675,02_ot_from_spatial_init,0.01
+2,0,0.3620734597057639,02_ot_from_spatial_init,0.01
+2,1,0.3638463472270608,02_ot_from_spatial_init,0.01
+2,2,0.36618565124206126,02_ot_from_spatial_init,0.01

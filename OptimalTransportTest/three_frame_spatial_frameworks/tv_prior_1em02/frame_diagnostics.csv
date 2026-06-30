@@ -1,0 +1,17 @@
+kind,i,j,value,stage,framework,prior_weight
+frame_pair_distance,0,1,0.0030931463177996665,tv_prior_1em02,tv,0.01
+frame_pair_distance,0,2,0.006313661587165208,tv_prior_1em02,tv,0.01
+frame_pair_distance,1,2,0.003259888058808623,tv_prior_1em02,tv,0.01
+cross_data_loss,0,0,0.3662764436621329,tv_prior_1em02,tv,0.01
+cross_data_loss,0,1,0.36650294830798846,tv_prior_1em02,tv,0.01
+cross_data_loss,0,2,0.3668189444128368,tv_prior_1em02,tv,0.01
+cross_data_loss,1,0,0.36576591758886057,tv_prior_1em02,tv,0.01
+cross_data_loss,1,1,0.3659794823707949,tv_prior_1em02,tv,0.01
+cross_data_loss,1,2,0.36628158831759,tv_prior_1em02,tv,0.01
+cross_data_loss,2,0,0.36520948709154366,tv_prior_1em02,tv,0.01
+cross_data_loss,2,1,0.36540990243564175,tv_prior_1em02,tv,0.01
+cross_data_loss,2,2,0.36569761385252714,tv_prior_1em02,tv,0.01
+mean_pairwise_frame_distance,-1,-1,0.004222231987924499,tv_prior_1em02,tv,0.01
+own_data_loss_mean,-1,-1,0.36598451329515164,tv_prior_1em02,tv,0.01
+cross_data_loss_mean,-1,-1,0.36599813135907694,tv_prior_1em02,tv,0.01
+cross_minus_own_data_loss_mean,-1,-1,1.3618063925302515e-05,tv_prior_1em02,tv,0.01

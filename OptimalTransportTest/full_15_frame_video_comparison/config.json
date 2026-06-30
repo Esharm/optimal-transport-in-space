@@ -1,0 +1,29 @@
+{
+  "obs_folder": "/home/ethanks/projects/optimal-transport-in-space/blackhole_sim_testing/observations_npz",
+  "gt_folder": "/home/ethanks/projects/optimal-transport-in-space/blackhole_sim/data/aart_frames",
+  "prior_path": "/home/ethanks/projects/optimal-transport-in-space/blackhole_sim/time_avg_static_recon_128pix.png",
+  "output_root": "full_15_frame_video_comparison",
+  "frames": 15,
+  "image_shape": [
+    128,
+    128
+  ],
+  "fov_rad": 7.757011611276756e-10,
+  "max_vis_per_frame": null,
+  "use_hermitian": false,
+  "seed": 0,
+  "prior_weight": 0.05,
+  "tv_weight": 0.0,
+  "max_iter": 500,
+  "min_iter": 50,
+  "rel_change_tol": 2e-05,
+  "obj_rel_tol": 2e-06,
+  "patience": 8,
+  "initial_step": 10.0,
+  "backtrack_factor": 0.5,
+  "max_backtracks": 30,
+  "parallel_frames": true,
+  "max_workers": 8,
+  "fps": 5,
+  "delta_amplification": 6.0
+}

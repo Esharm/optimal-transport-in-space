@@ -1,0 +1,17 @@
+kind,i,j,value,stage,framework,prior_weight
+frame_pair_distance,0,1,0.005117763362121897,wavelet_prior_2em03,wavelet,0.002
+frame_pair_distance,0,2,0.010588935057444388,wavelet_prior_2em03,wavelet,0.002
+frame_pair_distance,1,2,0.005574662057184839,wavelet_prior_2em03,wavelet,0.002
+cross_data_loss,0,0,0.021337096890880113,wavelet_prior_2em03,wavelet,0.002
+cross_data_loss,0,1,0.02132720901777577,wavelet_prior_2em03,wavelet,0.002
+cross_data_loss,0,2,0.021337782918048123,wavelet_prior_2em03,wavelet,0.002
+cross_data_loss,1,0,0.021335567470686347,wavelet_prior_2em03,wavelet,0.002
+cross_data_loss,1,1,0.02132448593307955,wavelet_prior_2em03,wavelet,0.002
+cross_data_loss,1,2,0.021333687967837862,wavelet_prior_2em03,wavelet,0.002
+cross_data_loss,2,0,0.02131990530808234,wavelet_prior_2em03,wavelet,0.002
+cross_data_loss,2,1,0.021307495219139605,wavelet_prior_2em03,wavelet,0.002
+cross_data_loss,2,2,0.021314938864095967,wavelet_prior_2em03,wavelet,0.002
+mean_pairwise_frame_distance,-1,-1,0.007093786825583708,wavelet_prior_2em03,wavelet,0.002
+own_data_loss_mean,-1,-1,0.021325507229351875,wavelet_prior_2em03,wavelet,0.002
+cross_data_loss_mean,-1,-1,0.021326941316928343,wavelet_prior_2em03,wavelet,0.002
+cross_minus_own_data_loss_mean,-1,-1,1.4340875764684569e-06,wavelet_prior_2em03,wavelet,0.002

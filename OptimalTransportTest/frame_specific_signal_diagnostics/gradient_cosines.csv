@@ -1,0 +1,4 @@
+label,i,j,cosine
+negative_gradient_at_prior,0,1,0.9997115255326237
+negative_gradient_at_prior,0,2,0.9988219507754104
+negative_gradient_at_prior,1,2,0.9996903895592248
