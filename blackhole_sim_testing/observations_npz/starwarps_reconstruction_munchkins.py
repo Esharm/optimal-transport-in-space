@@ -26,8 +26,8 @@ if not os.path.exists(os.path.dirname(outpath)):
 # Load the image and the telescope array
 folder = Path('/Users/emma.jia/Desktop/space_imaging/optimal-transport-in-space/blackhole_sim/data/aart_frames')
 
-ra  = 12.513728717168174   # hours
-dec = 12.391123306919757   # degrees
+ra  = 17.7611225   # hours
+dec = -29.0078   # degrees
 
 target_flux = 0.6  # Jy — typical M87* flux at 230 GHz (~2.4 Jy for Sgr A*)
 
@@ -40,17 +40,23 @@ for path in sorted(folder.glob('*.png')):
     eht_img = eh.image.Image(arr, fov / arr.shape[0], ra, dec, rf=226e9)
     im.append(eht_img)
 
-eht = eh.array.load_txt('EHTII.txt')
+eht = eh.array.load_txt('/Users/emma.jia/Desktop/space_imaging/optimal-transport-in-space/EHTII.txt')
+print(len(eht.tarr), 'stations:', eht.tarr['site'])
 # %%
 # simulation parameters
 tint_sec = 10
 tadv_sec = 10
-bw_hz = 2.e9
+bw_hz = 2e9
 n_frames = 15
 
-frame_duration_sec = 120        # each frame observed
-gap_sec = 0                  # gap between frames
-slot_sec = frame_duration_sec + gap_sec  
+t_transit = ra  # 17.7611225 hrs
+
+frame_duration_sec = 120
+gap_sec = 0 # or your gap
+slot_sec = frame_duration_sec + gap_sec
+
+# Center the whole observation block around transit
+t_start = t_transit - (n_frames * slot_sec / 3600) / 2
 
 total_sec = n_frames * slot_sec
 total_hrs = total_sec / 3600
@@ -59,8 +65,8 @@ obs_list = []
 valid_images = []
 
 for i in range(n_frames):
-    t0 = (i * slot_sec) / 3600                          # start of this frame's observation window
-    t1 = (i * slot_sec + frame_duration_sec) / 3600     # 20 seconds later
+    t0 = t_start + (i * slot_sec) / 3600                          # start of this frame's observation window
+    t1 = t_start + (i * slot_sec + frame_duration_sec) / 3600     # 20 seconds later
 
     frame_idx = int((i + 0.5) * len(im) / n_frames)
     image_frame = im[frame_idx]
@@ -73,7 +79,23 @@ for i in range(n_frames):
         valid_images.append(image_frame)
     except Exception as e:
         print(f"Frame {i} skipped: {e}")
+# %%
+print(f"Array has {len(eht.tarr)} stations")
+print(obs_list[0].tarr)
 
+# After generating obs_list
+for i, obs in enumerate(obs_list):
+    n_vis = len(obs.data)
+    baselines = set(zip(obs.data['t1'], obs.data['t2']))
+    print(f"Frame {i}: {n_vis} visibilities, {len(baselines)} unique baselines")
+
+# Plot uv-coverage for first frame
+fig, ax = plt.subplots()
+ax.scatter(obs_list[0].data['u']/1e9, obs_list[0].data['v']/1e9, s=1)
+ax.scatter(-obs_list[0].data['u']/1e9, -obs_list[0].data['v']/1e9, s=1)  # conjugate
+ax.set_xlabel('u (Gλ)'); ax.set_ylabel('v (Gλ)')
+ax.set_title('uv-coverage frame 0')
+plt.show()
 # %%
 obs_outpath = './tutorial_results/blackhole/observations'
 os.makedirs(obs_outpath, exist_ok=True)
