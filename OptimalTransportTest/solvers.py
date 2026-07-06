@@ -157,6 +157,11 @@ def _continuity(rho, momentum, dt):
     )
 
 
+def _unbalanced_continuity(rho, momentum, source, dt):
+    """K(rho,m,s) = forward-time density difference + div(m) - s."""
+    return _continuity(rho, momentum, dt) - source
+
+
 def _continuity_adjoint(phi, dt):
     """Exact Euclidean adjoint K* for the project's grad/div convention."""
     intervals, height, width = phi.shape
@@ -169,6 +174,12 @@ def _continuity_adjoint(phi, dt):
     # Here div = -grad*, hence (div)* = -grad.
     momentum_adj = np.stack([-grad(phi[t]) for t in range(intervals)])
     return rho_adj, momentum_adj
+
+
+def _unbalanced_continuity_adjoint(phi, dt):
+    rho_adj, momentum_adj = _continuity_adjoint(phi, dt)
+    source_adj = -phi
+    return rho_adj, momentum_adj, source_adj
 
 
 def _prox_kinetic_perspective(rho0, momentum0, gamma, newton_iters=12):
@@ -211,6 +222,21 @@ def _transport_action(rho, momentum, beta, dt, density_floor=1e-12):
     return float(beta * dt * np.sum(kinetic))
 
 
+def _unbalanced_transport_action(
+    rho,
+    momentum,
+    source,
+    beta,
+    dt,
+    source_weight,
+    density_floor=1e-12,
+):
+    density = np.maximum(rho[:-1], density_floor)
+    kinetic = np.sum(momentum * momentum, axis=1) / (2.0 * density)
+    source_cost = 0.5 * source_weight * source * source
+    return float(beta * dt * (np.sum(kinetic) + np.sum(source_cost)))
+
+
 def _initial_transport_state(left, right, slices):
     rho = np.stack([
         (1.0 - t / (slices - 1)) * left + (t / (slices - 1)) * right
@@ -221,6 +247,12 @@ def _initial_transport_state(left, right, slices):
         "momentum": np.zeros((slices - 1, 2, *left.shape), dtype=np.float64),
         "phi": np.zeros((slices - 1, *left.shape), dtype=np.float64),
     }
+
+
+def _initial_unbalanced_transport_state(left, right, slices):
+    state = _initial_transport_state(left, right, slices)
+    state["source"] = np.zeros((slices - 1, *left.shape), dtype=np.float64)
+    return state
 
 
 def solve_bb_pair(
@@ -314,6 +346,127 @@ def solve_bb_pair(
         "relative_change": float(last_change),
         "continuity_residual": float(continuity_norm),
         "transport_action": _transport_action(rho, momentum, beta, dt),
+    }
+    return rho[0].copy(), rho[-1].copy(), new_state, info
+
+
+def solve_unbalanced_bb_pair(
+    left,
+    right,
+    dual_left,
+    dual_right,
+    beta,
+    eta,
+    source_weight,
+    slices=7,
+    max_iter=200,
+    tol=2e-4,
+    state=None,
+    check_every=10,
+):
+    """Solve one unbalanced Benamou-Brenier subproblem.
+
+    The continuity equation is relaxed to
+
+        d_t rho + div(m) = s,
+
+    and the action adds 0.5 * source_weight * ||s||^2. Larger source_weight
+    approaches balanced OT; smaller source_weight permits mass creation and
+    destruction in the residual channel.
+    """
+    if slices < 2:
+        raise ValueError("slices must be at least 2")
+    if beta <= 0 or eta <= 0:
+        raise ValueError("solve_unbalanced_bb_pair requires beta > 0 and eta > 0")
+    source_weight = float(max(source_weight, 1e-30))
+
+    target_left = np.maximum(left - dual_left / eta, 0.0)
+    target_right = np.maximum(right - dual_right / eta, 0.0)
+    if state is None or state["rho"].shape[0] != slices or "source" not in state:
+        state = _initial_unbalanced_transport_state(target_left, target_right, slices)
+
+    rho = np.maximum(np.asarray(state["rho"], dtype=np.float64).copy(), 0.0)
+    momentum = np.asarray(state["momentum"], dtype=np.float64).copy()
+    source = np.asarray(state["source"], dtype=np.float64).copy()
+    phi = np.asarray(state["phi"], dtype=np.float64).copy()
+    dt = 1.0 / (slices - 1)
+
+    # ||D_t||^2 <= 4/dt^2, ||div||^2 <= 8, ||-I||^2 = 1.
+    operator_bound_sq = 4.0 / (dt * dt) + 9.0
+    step = 0.99 / np.sqrt(operator_bound_sq)
+    tau = min(step, 1.9 / eta)
+    sigma = 0.99 / (tau * operator_bound_sq)
+
+    rho_bar = rho.copy()
+    momentum_bar = momentum.copy()
+    source_bar = source.copy()
+    last_change = np.inf
+    continuity_norm = np.inf
+    iterations = max_iter
+
+    for iteration in range(1, max_iter + 1):
+        phi += sigma * _unbalanced_continuity(rho_bar, momentum_bar, source_bar, dt)
+        rho_adj, momentum_adj, source_adj = _unbalanced_continuity_adjoint(phi, dt)
+
+        old_rho = rho.copy()
+        old_momentum = momentum.copy()
+        old_source = source.copy()
+
+        rho_trial = rho - tau * rho_adj
+        momentum_trial = momentum - tau * momentum_adj
+        source_trial = source - tau * source_adj
+
+        rho_trial[0] -= tau * eta * (rho[0] - target_left)
+        rho_trial[-1] -= tau * eta * (rho[-1] - target_right)
+
+        kinetic_gamma = tau * beta * dt
+        for t in range(slices - 1):
+            rho[t], momentum[t] = _prox_kinetic_perspective(
+                rho_trial[t], momentum_trial[t], kinetic_gamma
+            )
+        rho[-1] = np.maximum(rho_trial[-1], 0.0)
+
+        source_gamma = tau * beta * dt * source_weight
+        source = source_trial / (1.0 + source_gamma)
+
+        rho_bar = 2.0 * rho - old_rho
+        momentum_bar = 2.0 * momentum - old_momentum
+        source_bar = 2.0 * source - old_source
+
+        if iteration % check_every == 0 or iteration == max_iter:
+            delta_sq = (
+                np.sum((rho - old_rho) ** 2)
+                + np.sum((momentum - old_momentum) ** 2)
+                + np.sum((source - old_source) ** 2)
+            )
+            scale_sq = (
+                np.sum(old_rho ** 2)
+                + np.sum(old_momentum ** 2)
+                + np.sum(old_source ** 2)
+            )
+            last_change = np.sqrt(delta_sq / (scale_sq + 1e-30))
+            residual = _unbalanced_continuity(rho, momentum, source, dt)
+            continuity_norm = np.linalg.norm(residual) / (
+                np.linalg.norm(rho)
+                + np.linalg.norm(momentum)
+                + np.linalg.norm(source)
+                + 1e-30
+            )
+            if max(last_change, continuity_norm) < tol:
+                iterations = iteration
+                break
+
+    new_state = {"rho": rho, "momentum": momentum, "source": source, "phi": phi}
+    info = {
+        "iterations": iterations,
+        "relative_change": float(last_change),
+        "continuity_residual": float(continuity_norm),
+        "transport_action": _unbalanced_transport_action(
+            rho, momentum, source, beta, dt, source_weight
+        ),
+        "source_l2": float(np.linalg.norm(source)),
+        "source_mass_abs": float(np.sum(np.abs(source)) * dt),
+        "source_mass_signed": float(np.sum(source) * dt),
     }
     return rho[0].copy(), rho[-1].copy(), new_state, info
 
@@ -416,3 +569,280 @@ def dual_step(u, b0, b1, lam0, lam1, eta=0.0, relaxation=1.0):
         lam0[k] += relaxation * eta * (b0[k] - u[k])
         lam1[k] += relaxation * eta * (b1[k] - u[k + 1])
     return lam0, lam1
+
+
+def positive_residual_transport_step(
+    u,
+    background,
+    lam0,
+    lam1,
+    beta=0.0,
+    eta=0.0,
+    T=7,
+    inner_iters=200,
+    tol=2e-4,
+    state=None,
+    return_state=False,
+):
+    """BB transport step on positive residuals above a fixed background.
+
+    This keeps the existing balanced BB solver, but changes the transported
+    density from the full image u_k to h_k = max(u_k - background, 0). The
+    intent is to regularize the dynamic hotspot/flaring component instead of
+    spending most OT mass on the nearly static ring.
+    """
+    background = np.asarray(background, dtype=np.float64)
+    residual = np.maximum(np.asarray(u, dtype=np.float64) - background[None, :, :], 0.0)
+    return transport_step(
+        u=residual,
+        lam0=lam0,
+        lam1=lam1,
+        beta=beta,
+        eta=eta,
+        T=T,
+        inner_iters=inner_iters,
+        tol=tol,
+        state=state,
+        return_state=return_state,
+    )
+
+
+def unbalanced_transport_step(
+    u,
+    lam0,
+    lam1,
+    beta=0.0,
+    eta=0.0,
+    source_weight=1.0,
+    T=7,
+    inner_iters=200,
+    tol=2e-4,
+    state=None,
+    return_state=False,
+):
+    """Solve all adjacent unbalanced BB subproblems."""
+    frames, height, width = u.shape
+    b0 = np.zeros((frames - 1, height, width), dtype=np.float64)
+    b1 = np.zeros_like(b0)
+
+    if frames <= 1:
+        result = (b0, b1, [], []) if return_state else (b0, b1)
+        return result
+    if beta <= 0 or eta <= 0:
+        b0[:] = u[:-1]
+        b1[:] = u[1:]
+        result = (b0, b1, [], []) if return_state else (b0, b1)
+        return result
+
+    if state is None or len(state) != frames - 1:
+        state = [None] * (frames - 1)
+    new_state, infos = [], []
+    for k in range(frames - 1):
+        b0[k], b1[k], pair_state, info = solve_unbalanced_bb_pair(
+            left=u[k],
+            right=u[k + 1],
+            dual_left=lam0[k],
+            dual_right=lam1[k],
+            beta=beta,
+            eta=eta,
+            source_weight=source_weight,
+            slices=T,
+            max_iter=inner_iters,
+            tol=tol,
+            state=state[k],
+        )
+        new_state.append(pair_state)
+        infos.append(info)
+    return (b0, b1, new_state, infos) if return_state else (b0, b1)
+
+
+def unbalanced_positive_residual_transport_step(
+    u,
+    background,
+    lam0,
+    lam1,
+    beta=0.0,
+    eta=0.0,
+    source_weight=1.0,
+    T=7,
+    inner_iters=200,
+    tol=2e-4,
+    state=None,
+    return_state=False,
+):
+    """Unbalanced BB transport step on positive residuals above background."""
+    background = np.asarray(background, dtype=np.float64)
+    residual = np.maximum(np.asarray(u, dtype=np.float64) - background[None, :, :], 0.0)
+    return unbalanced_transport_step(
+        u=residual,
+        lam0=lam0,
+        lam1=lam1,
+        beta=beta,
+        eta=eta,
+        source_weight=source_weight,
+        T=T,
+        inner_iters=inner_iters,
+        tol=tol,
+        state=state,
+        return_state=return_state,
+    )
+
+
+def positive_residual_image_step(
+    u,
+    data_terms,
+    background,
+    b0,
+    b1,
+    lam0,
+    lam1,
+    regularizer,
+    eta=0.0,
+    prior_image=None,
+    prior_weight=0.0,
+):
+    """Image update coupled to transported positive residual endpoints.
+
+    The ADMM constraint is imposed on the residual channel:
+
+        b0^k ~= max(u_k - background, 0),
+        b1^k ~= max(u_{k+1} - background, 0).
+
+    The image subproblem is solved with the existing quadratic-target image
+    solver by converting residual endpoint targets back to image targets:
+
+        u_k target ~= background + b + lambda / eta.
+
+    This is a practical positive-residual splitting. It is not unbalanced OT;
+    the residual BB pairs are still balanced.
+    """
+    frames, height, width = u.shape
+    background = np.asarray(background, dtype=np.float64)
+    result = np.asarray(u, dtype=np.float64).copy()
+    use_prior = prior_image is not None and prior_weight > 0.0
+    if use_prior:
+        prior_image = np.asarray(prior_image, dtype=np.float64)
+
+    for k in range(frames):
+        target_sum = np.zeros((height, width), dtype=np.float64)
+        total_weight = 0.0
+        if k < frames - 1 and eta > 0:
+            target_sum += eta * (background + b0[k] + lam0[k] / eta)
+            total_weight += eta
+        if k > 0 and eta > 0:
+            target_sum += eta * (background + b1[k - 1] + lam1[k - 1] / eta)
+            total_weight += eta
+        if use_prior:
+            prior = prior_image if prior_image.ndim == 2 else prior_image[k]
+            target_sum += prior_weight * prior
+            total_weight += prior_weight
+
+        target = target_sum / total_weight if total_weight > 0 else target_sum
+        result[k] = regularizer.solve(
+            u_init=result[k],
+            data_term=data_terms[k],
+            admm_target=target,
+            admm_weight=total_weight,
+            target_mass=None,
+        )
+    return result
+
+
+def positive_residual_dual_step(
+    u,
+    background,
+    b0,
+    b1,
+    lam0,
+    lam1,
+    eta=0.0,
+    relaxation=1.0,
+):
+    """Dual update for positive-residual endpoint consensus."""
+    if eta <= 0:
+        return lam0, lam1
+    residual = np.maximum(np.asarray(u, dtype=np.float64) - background[None, :, :], 0.0)
+    for k in range(len(u) - 1):
+        lam0[k] += relaxation * eta * (b0[k] - residual[k])
+        lam1[k] += relaxation * eta * (b1[k] - residual[k + 1])
+    return lam0, lam1
+
+
+def signed_residual_image_step(
+    u,
+    data_terms,
+    background,
+    pos_b0,
+    pos_b1,
+    neg_b0,
+    neg_b1,
+    pos_lam0,
+    pos_lam1,
+    neg_lam0,
+    neg_lam1,
+    regularizer,
+    eta=0.0,
+    prior_image=None,
+    prior_weight=0.0,
+):
+    """Image update coupled to positive and negative residual channels."""
+    frames, height, width = u.shape
+    background = np.asarray(background, dtype=np.float64)
+    result = np.asarray(u, dtype=np.float64).copy()
+    use_prior = prior_image is not None and prior_weight > 0.0
+    if use_prior:
+        prior_image = np.asarray(prior_image, dtype=np.float64)
+
+    for k in range(frames):
+        target_sum = np.zeros((height, width), dtype=np.float64)
+        total_weight = 0.0
+        if k < frames - 1 and eta > 0:
+            target_sum += eta * (background + pos_b0[k] + pos_lam0[k] / eta)
+            target_sum += eta * (background - neg_b0[k] - neg_lam0[k] / eta)
+            total_weight += 2.0 * eta
+        if k > 0 and eta > 0:
+            target_sum += eta * (background + pos_b1[k - 1] + pos_lam1[k - 1] / eta)
+            target_sum += eta * (background - neg_b1[k - 1] - neg_lam1[k - 1] / eta)
+            total_weight += 2.0 * eta
+        if use_prior:
+            prior = prior_image if prior_image.ndim == 2 else prior_image[k]
+            target_sum += prior_weight * prior
+            total_weight += prior_weight
+
+        target = target_sum / total_weight if total_weight > 0 else target_sum
+        result[k] = regularizer.solve(
+            u_init=result[k],
+            data_term=data_terms[k],
+            admm_target=target,
+            admm_weight=total_weight,
+            target_mass=None,
+        )
+    return result
+
+
+def signed_residual_dual_step(
+    u,
+    background,
+    pos_b0,
+    pos_b1,
+    neg_b0,
+    neg_b1,
+    pos_lam0,
+    pos_lam1,
+    neg_lam0,
+    neg_lam1,
+    eta=0.0,
+    relaxation=1.0,
+):
+    """Dual update for signed residual endpoint consensus."""
+    if eta <= 0:
+        return pos_lam0, pos_lam1, neg_lam0, neg_lam1
+    background = np.asarray(background, dtype=np.float64)
+    residual_pos = np.maximum(np.asarray(u, dtype=np.float64) - background[None, :, :], 0.0)
+    residual_neg = np.maximum(background[None, :, :] - np.asarray(u, dtype=np.float64), 0.0)
+    for k in range(len(u) - 1):
+        pos_lam0[k] += relaxation * eta * (pos_b0[k] - residual_pos[k])
+        pos_lam1[k] += relaxation * eta * (pos_b1[k] - residual_pos[k + 1])
+        neg_lam0[k] += relaxation * eta * (neg_b0[k] - residual_neg[k])
+        neg_lam1[k] += relaxation * eta * (neg_b1[k] - residual_neg[k + 1])
+    return pos_lam0, pos_lam1, neg_lam0, neg_lam1

@@ -38,7 +38,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
 @dataclass(frozen=True)
 class Config:
-    obs_folder: Path = PROJECT_ROOT / "blackhole_sim_testing" / "observations_3min_npz"
+    obs_folder: Path = PROJECT_ROOT / "blackhole_sim_testing" / "observations_fixed_npz"
     prior_path: Path = PROJECT_ROOT / "blackhole_sim" / "time_avg_static_recon_128pix.png"
     output_root: Path = Path("three_frame_ablation")
     frames: int = 3
@@ -51,7 +51,7 @@ class Config:
     fov_rad: float = 160e-6 / 206265.0
     # At 128x128, caching dense direct Fourier matrices can be memory-heavy
     # when using many visibilities. Use None for the final full-data run.
-    max_vis_per_frame: int | None = 750
+    max_vis_per_frame: int | None = 10000
     use_hermitian: bool = False
     seed: int = 0
 
@@ -152,6 +152,12 @@ def load_data_terms(cfg: Config):
     terms, names = [], []
     shape = (cfg.image_height, cfg.image_width)
     print(f"Global visibility scale: {data_scale:.3e}")
+    use_cache = getattr(cfg, "use_visibility_cache", True)
+    chunk_size = getattr(cfg, "visibility_chunk_size", 256)
+    print(
+        "Visibility operator mode: "
+        f"{'cached dense matrix' if use_cache else f'streamed chunks of {chunk_size}'}"
+    )
     for name, u, v, vis, sigma in raw:
         weight = sigma ** -2
         weight /= np.median(weight) + 1e-12
@@ -162,6 +168,8 @@ def load_data_terms(cfg: Config):
             shape=shape,
             fov_rad=cfg.fov_rad,
             data_scale=data_scale,
+            use_cache=use_cache,
+            chunk_size=chunk_size,
         )
         observed = np.sqrt(weight) * vis / sampler.total_scale
         terms.append(ComplexVisibilityDataTerm(sampler=sampler, f=observed))

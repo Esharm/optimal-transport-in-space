@@ -1,23 +1,18 @@
 """Data-consistent ring augmentation followed by residual signed OT/ADMM.
 
 This main4.py is intentionally configured to run all first 15 observation
-frames, initialize from a radially averaged static reconstruction augmented to
-fit each frame's visibility data without leaving the physical ring scale, and write only minimal outputs:
+frames, initialize from a radially averaged static reconstruction augmented by
+fast bounded data-gradient moves, and write only minimal outputs:
 
     main4_results/results.npz
     main4_results/comparison_gt_spatial_ot.mp4
 
 This is the current experimental pipeline:
 
-    1. Start from the calibrated static ring prior p and compute a signed,
-       bounded smooth ring-supported residual correction delta_k for each frame:
+    1. Start from the calibrated static ring prior p and take a few bounded,
+       smooth, ring-supported residual-gradient moves for each frame:
 
-           delta_k = M G_sigma z_k,
-           z_k fits S_k delta_k ~= f_k - S_k p,
-           u_k = max(p + a_k delta_k, 0),
-
-       where a_k is chosen by a trust-region line search so the frame remains
-       near the brightness scale/support of the calibrated ring.
+           u_k = max(p + delta_k, 0).
 
     2. Use those non-identical spatial reconstructions as the initialization
        for an ADMM solve over the full image u_k with residual
@@ -77,31 +72,28 @@ class Config(LoaderConfig):
 
     # The prior PNG is brightness-calibrated to the visibilities before use.
     # main4 does not use a spatial reconstruction/pre-prior solve. It directly
-    # augments the calibrated ring with a signed minimum-norm correction that
-    # fits each frame's residual visibilities.
+    # augments the calibrated ring with a few bounded data-gradient moves so the
+    # initialization is frame-specific but quick and physically scaled.
     prior_weight: float = 4e-2
     tv_weight: float = 1e-5
 
-    # Bounded ring-supported visibility augmentation.
-    # The old main4 minimum-norm correction was too ill-conditioned: it could
-    # match neither the data nor image scale after positivity clipping. These
-    # settings restrict the correction to a smooth residual near the ring, then
-    # line-search the largest physically safe scale.
-    data_match_ridge: float = 1e-8
-    data_match_max_iter: int = 120
-    data_match_tol: float = 2e-3
-    correction_smoothing_sigma_px: float = 1.5
-    correction_support_threshold_fraction: float = 0.08
-    correction_support_blur_sigma_px: float = 2.0
-    correction_support_floor: float = 0.02
+    # Fast pre-OT augmentation: a few bounded residual-gradient moves, not a
+    # converged reconstruction. The formal data term is still handled in ADMM.
+    augmentation_steps: int = 2
+    augmentation_smoothing_sigma_px: float = 1.25
+    augmentation_support_threshold_fraction: float = 0.08
+    augmentation_support_floor: float = 0.02
+    augmentation_scale_fractions: tuple[float, ...] = (
+        0.0, 0.05, 0.10, 0.20, 0.35, 0.55, 0.75, 1.0
+    )
     max_initial_relative_change: float = 0.75
     max_initial_total_brightness_factor: float = 1.50
     min_initial_total_brightness_factor: float = 0.50
     max_initial_peak_factor: float = 3.0
-    max_allowed_data_loss_factor: float = 1.05
     require_data_improvement: bool = True
-    residual_mass_cap_factor: float = 2.5
     enforce_nonnegative_initialization: bool = True
+    use_visibility_cache: bool = False
+    visibility_chunk_size: int = 128
 
     # Spatial TV+prior initialization.
     spatial_inner_iters: int = 25
@@ -119,13 +111,18 @@ class Config(LoaderConfig):
     beta: float = 1e-6
     eta: float = 1e-2
     ot_max_iter: int = 15
-    ot_min_iter: int = 5
-    ot_patience: int = 3
+    ot_min_iter: int = 3
+    ot_patience: int = 2
+    # With streamed 5000-visibility operators, each image update is expensive.
+    # Keep OT as a fast refinement step; the data term still appears every ADMM
+    # iteration, but we do not solve the image subproblem tightly.
+    ot_image_inner_iters: int = 3
+    ot_power_iters: int = 3
     transport_slices: int = 7
-    transport_inner_iters: int = 100
+    transport_inner_iters: int = 60
     transport_tol: float = 1e-3
 
-    parallel_frames: bool = True
+    parallel_frames: bool = False
     delta_amplification: float = 6.0
 
 
@@ -384,290 +381,124 @@ def _stack_complex(z):
     return np.concatenate((z.real, z.imag))
 
 
-def _unstack_complex(x):
-    x = np.asarray(x, dtype=np.float64).ravel()
-    half = x.size // 2
-    return x[:half] + 1j * x[half:]
-
-
-def _gaussian_blur(image, sigma):
-    """Gaussian blur with a safe no-op path and reflect boundaries."""
+def gaussian_smooth_fft(image, sigma_px):
+    if sigma_px <= 0:
+        return np.asarray(image, dtype=np.float64)
     image = np.asarray(image, dtype=np.float64)
-    sigma = float(sigma)
-    if sigma <= 0:
-        return image.copy()
-    # OpenCV picks the kernel size from sigma when ksize=(0, 0).
-    return cv2.GaussianBlur(image, (0, 0), sigmaX=sigma, sigmaY=sigma, borderType=cv2.BORDER_REFLECT)
+    height, width = image.shape
+    fy = np.fft.fftfreq(height)
+    fx = np.fft.fftfreq(width)
+    freq_x, freq_y = np.meshgrid(fx, fy)
+    gaussian = np.exp(-2.0 * (np.pi ** 2) * (sigma_px ** 2) * (freq_x ** 2 + freq_y ** 2))
+    return np.fft.ifft2(np.fft.fft2(image) * gaussian).real
 
 
-def build_ring_support_mask(prior, cfg):
-    """Soft mask that keeps visibility corrections concentrated near the ring."""
+def make_ring_support(prior, cfg):
     prior = np.asarray(prior, dtype=np.float64)
-    peak = float(np.max(prior))
-    if peak <= 1e-30:
-        return np.ones_like(prior)
-
-    hard = (prior >= cfg.correction_support_threshold_fraction * peak).astype(np.float64)
-    soft = _gaussian_blur(hard, cfg.correction_support_blur_sigma_px)
-    soft = soft / (float(np.max(soft)) + 1e-30)
-    floor = float(np.clip(cfg.correction_support_floor, 0.0, 1.0))
-    return floor + (1.0 - floor) * soft
+    threshold = cfg.augmentation_support_threshold_fraction * float(prior.max() + 1e-30)
+    support = (prior >= threshold).astype(np.float64)
+    support = gaussian_smooth_fft(support, cfg.augmentation_smoothing_sigma_px)
+    support = support / (support.max() + 1e-30)
+    return cfg.augmentation_support_floor + (1.0 - cfg.augmentation_support_floor) * support
 
 
-def latent_to_correction(latent, support, cfg):
-    """Map a free signed latent image to a smooth, ring-supported correction."""
-    return support * _gaussian_blur(latent, cfg.correction_smoothing_sigma_px)
+def filtered_gradient_direction(data_term, image, support, cfg):
+    residual = data_term.sampler.forward(image) - data_term.f
+    # Negative gradient of 0.5 ||S u - f||^2.
+    direction = -data_term.sampler.adjoint(residual)
+    direction = gaussian_smooth_fft(direction, cfg.augmentation_smoothing_sigma_px)
+    return support * direction
 
 
-def correction_adjoint(image, support, cfg):
-    """Adjoint of latent_to_correction for symmetric Gaussian blur."""
-    return _gaussian_blur(support * image, cfg.correction_smoothing_sigma_px)
+def choose_bounded_update(data_term, prior, current, direction, base_loss, cfg):
+    prior_norm = np.linalg.norm(prior) + 1e-30
+    direction_norm = np.linalg.norm(direction)
+    if direction_norm <= 1e-30:
+        return current, 0.0, base_loss, "zero_direction"
+
+    max_delta_norm = cfg.max_initial_relative_change * prior_norm
+    current_delta = current - prior
+    remaining_delta_norm = max_delta_norm - np.linalg.norm(current_delta)
+    if remaining_delta_norm <= 0:
+        return current, 0.0, base_loss, "relative_change_cap"
+
+    scale_limit = remaining_delta_norm / (direction_norm + 1e-30)
+    prior_sum = float(prior.sum())
+    min_sum = cfg.min_initial_total_brightness_factor * prior_sum
+    max_sum = cfg.max_initial_total_brightness_factor * prior_sum
+    max_peak = cfg.max_initial_peak_factor * float(prior.max() + 1e-30)
+
+    best = current
+    best_scale = 0.0
+    best_loss = base_loss
+    best_reason = "no_improvement"
+
+    for fraction in cfg.augmentation_scale_fractions:
+        scale = scale_limit * float(fraction)
+        candidate = current + scale * direction
+        if cfg.enforce_nonnegative_initialization:
+            candidate = np.maximum(candidate, 0.0)
+
+        total = float(candidate.sum())
+        peak = float(candidate.max())
+        if total < min_sum or total > max_sum or peak > max_peak:
+            continue
+
+        loss = float(data_term.loss(candidate))
+        allowed = (not cfg.require_data_improvement) or loss <= base_loss
+        if allowed and loss <= best_loss:
+            best = candidate
+            best_scale = scale
+            best_loss = loss
+            best_reason = "accepted"
+
+    return best, best_scale, best_loss, best_reason
 
 
-def constrained_visibility_correction(data_term, target_visibility, support, cfg):
-    """Solve for a smooth, ring-supported signed correction.
-
-    Let B z = M G_sigma z, where M is a soft ring-support mask and G_sigma is
-    Gaussian smoothing. This solves the ridge-regularized minimum latent-norm
-    problem
-
-        min_z 0.5 || S B z - target_visibility ||^2 + 0.5 ridge ||z||^2
-
-    by conjugate gradients in measurement space. The returned image correction
-    is delta = B z. This keeps the correction from using arbitrary image-space
-    null directions far away from the ring.
-    """
-    sampler = data_term.sampler
-    rhs = _stack_complex(target_visibility)
-    rhs_norm = float(np.linalg.norm(rhs))
-
-    if rhs_norm <= 1e-30:
-        delta = np.zeros((sampler.H, sampler.W), dtype=np.float64)
-        return delta, {
-            "cg_iterations": 0,
-            "cg_relative_residual": 0.0,
-            "preclip_visibility_relative_residual": 0.0,
-            "delta_l2": 0.0,
-            "delta_min": 0.0,
-            "delta_max": 0.0,
-        }
-
-    def k_adjoint(coefficients):
-        image = sampler.adjoint(coefficients)
-        return correction_adjoint(image, support, cfg)
-
-    def k_forward(latent):
-        return sampler.forward(latent_to_correction(latent, support, cfg))
-
-    def apply_gram(coefficients_real):
-        coefficients = _unstack_complex(coefficients_real)
-        latent = k_adjoint(coefficients)
-        projected = k_forward(latent)
-        result = _stack_complex(projected)
-        if cfg.data_match_ridge > 0:
-            result = result + cfg.data_match_ridge * coefficients_real
-        return result
-
-    coefficients = np.zeros_like(rhs)
-    residual = rhs.copy()
-    direction = residual.copy()
-    residual_sq = float(np.dot(residual, residual))
-    relative_residual = np.sqrt(residual_sq) / rhs_norm
-    iterations = 0
-
-    for iterations in range(1, cfg.data_match_max_iter + 1):
-        gram_direction = apply_gram(direction)
-        denominator = float(np.dot(direction, gram_direction))
-        if abs(denominator) <= 1e-30:
-            break
-
-        step = residual_sq / denominator
-        coefficients += step * direction
-        residual -= step * gram_direction
-
-        next_residual_sq = float(np.dot(residual, residual))
-        relative_residual = np.sqrt(next_residual_sq) / rhs_norm
-        if relative_residual <= cfg.data_match_tol:
-            residual_sq = next_residual_sq
-            break
-
-        direction = residual + (next_residual_sq / (residual_sq + 1e-30)) * direction
-        residual_sq = next_residual_sq
-
-    latent = k_adjoint(_unstack_complex(coefficients))
-    delta = latent_to_correction(latent, support, cfg)
-    preclip_residual = sampler.forward(delta) - target_visibility
-    preclip_relative = float(
-        np.linalg.norm(_stack_complex(preclip_residual)) / (rhs_norm + 1e-30)
-    )
-
-    return delta, {
-        "cg_iterations": iterations,
-        "cg_relative_residual": float(relative_residual),
-        "preclip_visibility_relative_residual": preclip_relative,
-        "delta_l2": float(np.linalg.norm(delta)),
-        "delta_min": float(delta.min()),
-        "delta_max": float(delta.max()),
-    }
-
-
-def _candidate_scale_grid():
-    """Dense near zero, with exact 1.0 included for successful clean fits."""
-    return np.asarray([
-        1.00, 0.85, 0.70, 0.55, 0.40, 0.30, 0.22, 0.16,
-        0.12, 0.09, 0.06, 0.04, 0.025, 0.015, 0.008, 0.0,
-    ], dtype=np.float64)
-
-
-def choose_safe_correction_scale(prior, raw_delta, data_term, cfg):
-    """Pick the most data-improving correction scale that stays physically sane."""
-    prior = np.asarray(prior, dtype=np.float64)
-    raw_delta = np.asarray(raw_delta, dtype=np.float64)
-
-    prior_norm = float(np.linalg.norm(prior)) + 1e-30
-    prior_sum = float(np.sum(prior)) + 1e-30
-    prior_peak = float(np.max(prior)) + 1e-30
-    prior_loss = float(data_term.loss(prior))
-
-    best = None
-    fallback = None
-    for scale in _candidate_scale_grid():
-        raw_u = prior + scale * raw_delta
-        u = np.maximum(raw_u, 0.0) if cfg.enforce_nonnegative_initialization else raw_u
-
-        rel_change = float(np.linalg.norm(u - prior) / prior_norm)
-        total_factor = float(np.sum(u) / prior_sum)
-        peak_factor = float(np.max(u) / prior_peak)
-        data_loss = float(data_term.loss(u))
-        improves = data_loss <= prior_loss * float(cfg.max_allowed_data_loss_factor)
-        if cfg.require_data_improvement:
-            improves = improves and data_loss <= prior_loss
-
-        feasible_physical = (
-            rel_change <= cfg.max_initial_relative_change
-            and cfg.min_initial_total_brightness_factor <= total_factor <= cfg.max_initial_total_brightness_factor
-            and peak_factor <= cfg.max_initial_peak_factor
-        )
-
-        row = {
-            "chosen_scale": float(scale),
-            "candidate_data_loss": data_loss,
-            "candidate_prior_data_loss": prior_loss,
-            "candidate_data_loss_ratio_to_prior": float(data_loss / (prior_loss + 1e-30)),
-            "candidate_relative_change": rel_change,
-            "candidate_total_brightness_factor": total_factor,
-            "candidate_peak_factor": peak_factor,
-            "candidate_improves_data": bool(improves),
-            "candidate_feasible_physical": bool(feasible_physical),
-        }
-
-        if feasible_physical:
-            # Fallback: best physically safe point even if it does not beat the prior.
-            if fallback is None or data_loss < fallback[0]:
-                fallback = (data_loss, scale, u, row)
-
-            # Main selection: among safe and data-improving points, minimize data loss.
-            if improves and (best is None or data_loss < best[0]):
-                best = (data_loss, scale, u, row)
-
-    if best is not None:
-        _, scale, u, row = best
-        row["accepted_data_improving_scale"] = True
-        return u, row
-
-    if fallback is not None:
-        _, scale, u, row = fallback
-        row["accepted_data_improving_scale"] = False
-        return u, row
-
-    # This should almost never happen because scale=0 is physically feasible.
-    u = np.maximum(prior, 0.0)
-    return u, {
-        "chosen_scale": 0.0,
-        "candidate_data_loss": prior_loss,
-        "candidate_prior_data_loss": prior_loss,
-        "candidate_data_loss_ratio_to_prior": 1.0,
-        "candidate_relative_change": 0.0,
-        "candidate_total_brightness_factor": 1.0,
-        "candidate_peak_factor": 1.0,
-        "candidate_improves_data": False,
-        "candidate_feasible_physical": True,
-        "accepted_data_improving_scale": False,
-    }
-
-
-def residual_mass_stats(u, prior):
-    delta = np.asarray(u, dtype=np.float64) - np.asarray(prior, dtype=np.float64)[None, :, :]
-    positive = np.maximum(delta, 0.0).sum(axis=(1, 2))
-    negative = np.maximum(-delta, 0.0).sum(axis=(1, 2))
-    return positive, negative
-
-
-def apply_residual_mass_cap(u, prior, cfg):
-    """Shrink extreme residual frames so balanced OT is not given absurd masses."""
-    u = np.asarray(u, dtype=np.float64).copy()
-    prior_stack = np.asarray(prior, dtype=np.float64)[None, :, :]
-    positive, negative = residual_mass_stats(u, prior)
-
-    pos_med = float(np.median(positive[positive > 1e-30])) if np.any(positive > 1e-30) else 0.0
-    neg_med = float(np.median(negative[negative > 1e-30])) if np.any(negative > 1e-30) else 0.0
-    cap = float(cfg.residual_mass_cap_factor)
-
-    scales = []
-    for k in range(len(u)):
-        scale = 1.0
-        if pos_med > 0 and positive[k] > cap * pos_med:
-            scale = min(scale, cap * pos_med / (positive[k] + 1e-30))
-        if neg_med > 0 and negative[k] > cap * neg_med:
-            scale = min(scale, cap * neg_med / (negative[k] + 1e-30))
-        if scale < 1.0:
-            u[k] = np.maximum(prior + scale * (u[k] - prior), 0.0)
-        scales.append(scale)
-
-    return u, {
-        "mass_cap_scale_min": float(np.min(scales)),
-        "mass_cap_scale_mean": float(np.mean(scales)),
-        "positive_residual_mass_median_before_cap": pos_med,
-        "negative_residual_mass_median_before_cap": neg_med,
-    }
-
-
-def residual_mass_diagnostics(label, u, prior):
-    positive, negative = residual_mass_stats(u, prior)
-    return {
-        f"{label}_positive_residual_mass_min": float(positive.min()),
-        f"{label}_positive_residual_mass_max": float(positive.max()),
-        f"{label}_positive_residual_mass_mean": float(positive.mean()),
-        f"{label}_negative_residual_mass_min": float(negative.min()),
-        f"{label}_negative_residual_mass_max": float(negative.max()),
-        f"{label}_negative_residual_mass_mean": float(negative.mean()),
-    }
-
-
-def run_bounded_ring_supported_augmentation(data_terms, prior, cfg):
-    """Bounded, smooth, ring-supported data augmentation of the static prior."""
+def run_data_consistent_ring_augmentation(data_terms, prior, cfg):
+    """Fast bounded augmentation: a few safe data-gradient moves from the ring."""
     started = time.perf_counter()
-    support = build_ring_support_mask(prior, cfg)
+    support = make_ring_support(prior, cfg)
 
     def augment_frame(k):
-        target = data_terms[k].f - data_terms[k].sampler.forward(prior)
-        raw_delta, info = constrained_visibility_correction(data_terms[k], target, support, cfg)
-        u, scale_info = choose_safe_correction_scale(prior, raw_delta, data_terms[k], cfg)
+        term = data_terms[k]
+        u = prior.copy()
+        prior_loss = float(term.loss(prior))
+        loss = prior_loss
+        accepted_steps = 0
+        chosen_scales = []
+        stop_reason = "max_steps"
 
-        postclip_residual = data_terms[k].sampler.forward(u) - data_terms[k].f
-        target_norm = np.linalg.norm(_stack_complex(data_terms[k].f)) + 1e-30
-        prior_loss = float(data_terms[k].loss(prior))
-        postclip_loss = float(data_terms[k].loss(u))
+        for _ in range(cfg.augmentation_steps):
+            direction = filtered_gradient_direction(term, u, support, cfg)
+            candidate, scale, candidate_loss, reason = choose_bounded_update(
+                term, prior, u, direction, loss, cfg
+            )
+            if scale <= 0.0:
+                stop_reason = reason
+                break
+            u = candidate
+            loss = candidate_loss
+            accepted_steps += 1
+            chosen_scales.append(scale)
+
+        final_residual = term.sampler.forward(u) - term.f
+        data_norm = np.linalg.norm(_stack_complex(term.f)) + 1e-30
+        delta = u - prior
         info = {
             "frame": k,
-            **info,
-            **scale_info,
-            "postclip_data_loss": postclip_loss,
+            "accepted_steps": accepted_steps,
+            "stop_reason": stop_reason,
+            "chosen_scale_sum": float(np.sum(chosen_scales)) if chosen_scales else 0.0,
             "prior_data_loss": prior_loss,
-            "data_loss_improvement_factor": float(prior_loss / (postclip_loss + 1e-30)),
+            "postclip_data_loss": loss,
+            "data_loss_improvement": float(prior_loss - loss),
             "postclip_visibility_relative_residual": float(
-                np.linalg.norm(_stack_complex(postclip_residual)) / target_norm
+                np.linalg.norm(_stack_complex(final_residual)) / data_norm
             ),
+            "relative_change_from_prior": float(np.linalg.norm(delta) / (np.linalg.norm(prior) + 1e-30)),
+            "positive_residual_mass": float(np.maximum(delta, 0.0).sum()),
+            "negative_residual_mass": float(np.maximum(-delta, 0.0).sum()),
             "u_min": float(u.min()),
             "u_max": float(u.max()),
             "u_sum": float(u.sum()),
@@ -682,91 +513,53 @@ def run_bounded_ring_supported_augmentation(data_terms, prior, cfg):
 
     u = np.stack([item[0] for item in results])
     frame_infos = [item[1] for item in results]
-
-    u, mass_cap_info = apply_residual_mass_cap(u, prior, cfg)
-
-    # Refresh final per-frame losses after possible mass capping.
-    for k, info in enumerate(frame_infos):
-        info["final_data_loss"] = float(data_terms[k].loss(u[k]))
-        info["final_relative_change_from_prior"] = float(
-            np.linalg.norm(u[k] - prior) / (np.linalg.norm(prior) + 1e-30)
-        )
-        info["final_total_brightness_factor"] = float(
-            np.sum(u[k]) / (np.sum(prior) + 1e-30)
-        )
-        info["final_peak_factor"] = float(
-            np.max(u[k]) / (np.max(prior) + 1e-30)
-        )
-
     elapsed = time.perf_counter() - started
 
-    losses = np.asarray([info["final_data_loss"] for info in frame_infos])
+    losses = np.asarray([info["postclip_data_loss"] for info in frame_infos])
     prior_losses = np.asarray([info["prior_data_loss"] for info in frame_infos])
-    preclip_residuals = np.asarray([
-        info["preclip_visibility_relative_residual"] for info in frame_infos
-    ])
     postclip_residuals = np.asarray([
         info["postclip_visibility_relative_residual"] for info in frame_infos
     ])
-    cg_residuals = np.asarray([info["cg_relative_residual"] for info in frame_infos])
-    chosen_scales = np.asarray([info["chosen_scale"] for info in frame_infos])
-    final_rel = np.asarray([info["final_relative_change_from_prior"] for info in frame_infos])
-    final_total = np.asarray([info["final_total_brightness_factor"] for info in frame_infos])
-    final_peak = np.asarray([info["final_peak_factor"] for info in frame_infos])
+    relative_changes = np.asarray([
+        info["relative_change_from_prior"] for info in frame_infos
+    ])
+    accepted_steps = np.asarray([info["accepted_steps"] for info in frame_infos])
 
     aggregate = {
-        "stage": "bounded_ring_supported_augmentation",
+        "stage": "bounded_fast_ring_augmentation",
         "seconds": elapsed,
-        "cg_iterations_max": int(max(info["cg_iterations"] for info in frame_infos)),
-        "cg_relative_residual_max": float(cg_residuals.max()),
-        "preclip_visibility_relative_residual_mean": float(preclip_residuals.mean()),
-        "preclip_visibility_relative_residual_max": float(preclip_residuals.max()),
+        "accepted_steps_min": int(accepted_steps.min()),
+        "accepted_steps_max": int(accepted_steps.max()),
+        "accepted_steps_mean": float(accepted_steps.mean()),
         "postclip_visibility_relative_residual_mean": float(postclip_residuals.mean()),
         "postclip_visibility_relative_residual_max": float(postclip_residuals.max()),
         "prior_data_loss_mean": float(prior_losses.mean()),
-        "final_data_loss_mean": float(losses.mean()),
-        "final_data_loss_max": float(losses.max()),
-        "data_loss_improvement_factor_mean": float(np.mean(prior_losses / (losses + 1e-30))),
-        "chosen_scale_min": float(chosen_scales.min()),
-        "chosen_scale_mean": float(chosen_scales.mean()),
-        "chosen_scale_max": float(chosen_scales.max()),
-        "accepted_data_improving_frames": int(sum(bool(info["accepted_data_improving_scale"]) for info in frame_infos)),
-        "final_relative_change_from_prior_min": float(final_rel.min()),
-        "final_relative_change_from_prior_mean": float(final_rel.mean()),
-        "final_relative_change_from_prior_max": float(final_rel.max()),
-        "final_total_brightness_factor_min": float(final_total.min()),
-        "final_total_brightness_factor_max": float(final_total.max()),
-        "final_peak_factor_max": float(final_peak.max()),
-        **mass_cap_info,
-        **residual_mass_diagnostics("spatial", u, prior),
+        "postclip_data_loss_mean": float(losses.mean()),
+        "postclip_data_loss_max": float(losses.max()),
+        "data_loss_improvement_mean": float((prior_losses - losses).mean()),
+        "relative_change_from_prior_mean": float(relative_changes.mean()),
+        "relative_change_from_prior_max": float(relative_changes.max()),
     }
     history = [{"aggregate": aggregate, "frames": frame_infos}]
 
     print(
-        "bounded ring-supported augmentation | "
-        f"scale_mean={aggregate['chosen_scale_mean']:.3e} "
-        f"| accepted={aggregate['accepted_data_improving_frames']}/{len(data_terms)} "
-        f"| rel_change_max={aggregate['final_relative_change_from_prior_max']:.3e} "
-        f"| total_factor=[{aggregate['final_total_brightness_factor_min']:.3e}, "
-        f"{aggregate['final_total_brightness_factor_max']:.3e}] "
-        f"| data_improve_mean={aggregate['data_loss_improvement_factor_mean']:.3e}"
+        "bounded fast augmentation | "
+        f"steps={aggregate['accepted_steps_min']}-{aggregate['accepted_steps_max']} "
+        f"| postclip_vis_rel_mean={aggregate['postclip_visibility_relative_residual_mean']:.3e} "
+        f"| data_loss {aggregate['prior_data_loss_mean']:.3e}->{aggregate['postclip_data_loss_mean']:.3e} "
+        f"| rel_change_max={aggregate['relative_change_from_prior_max']:.3e}"
     )
 
-    converged = bool(
-        aggregate["final_relative_change_from_prior_max"] <= cfg.max_initial_relative_change + 1e-12
-        and aggregate["final_total_brightness_factor_min"] >= cfg.min_initial_total_brightness_factor - 1e-12
-        and aggregate["final_total_brightness_factor_max"] <= cfg.max_initial_total_brightness_factor + 1e-12
-        and aggregate["final_peak_factor_max"] <= cfg.max_initial_peak_factor + 1e-12
-    )
-    return u, history, elapsed, converged
+    return u, history, elapsed, True
 
 
 def run_residual_signed_ot_from_initialization(u_init, data_terms, prior, cfg):
     regularizer = TotalVariationRegularizer(
         alpha=cfg.tv_weight,
-        iters=cfg.spatial_inner_iters,
+        iters=cfg.ot_image_inner_iters,
         tau=cfg.primal_tau,
         sigma=cfg.dual_sigma,
+        power_iters=cfg.ot_power_iters,
     )
 
     model = ResidualSignedOTADMM(
@@ -788,6 +581,11 @@ def run_residual_signed_ot_from_initialization(u_init, data_terms, prior, cfg):
     )
 
     started = time.perf_counter()
+    print(
+        "Starting OT/ADMM refinement "
+        f"(outer iters <= {cfg.ot_max_iter}, image iters = {cfg.ot_image_inner_iters}, "
+        f"power iters = {cfg.ot_power_iters}, transport iters <= {cfg.transport_inner_iters})"
+    )
     u_ot, history = model.run(u_init.copy())
     elapsed = time.perf_counter() - started
     converged = bool(
@@ -1054,14 +852,14 @@ def main():
     cfg.output_root.mkdir(parents=True, exist_ok=True)
 
     print("=" * 100)
-    print("MAIN4.PY: RADIAL PRIOR -> BOUNDED RING-SUPPORTED AUGMENTATION -> RESIDUAL OT")
+    print("MAIN4.PY: RADIAL PRIOR -> FAST BOUNDED AUGMENTATION -> RESIDUAL OT")
     print("Outputs are intentionally minimal: results.npz and one comparison video.")
     print("=" * 100)
     print("Objective being tested")
     print("=" * 100)
-    print("Bounded ring-supported visibility augmentation:")
+    print("Fast bounded ring augmentation:")
     print("  u_k = max(prior + delta_k, 0)")
-    print("  delta_k = M G_sigma z_k is smooth/ring-supported and line-searched for safe data improvement")
+    print("  delta_k comes from a few smooth/ring-supported negative-gradient data steps")
     print("Residual signed OT stage:")
     print("  same spatial objective + beta * sum_k [BB((u_k-p)_+,(u_{k+1}-p)_+) + BB((p-u_k)_+,(p-u_{k+1})_+)]")
     print("ADMM image step still contains data + TV + prior + residual endpoint penalties.")
@@ -1084,15 +882,15 @@ def main():
     u_prior = np.repeat(prior[None, :, :], len(data_terms), axis=0)
 
     print("\n" + "=" * 100)
-    print("1. Bounded ring-supported visibility augmentation")
+    print("1. Fast bounded ring augmentation")
     print("=" * 100)
-    u_spatial, spatial_history, spatial_elapsed, spatial_converged = run_bounded_ring_supported_augmentation(
+    u_spatial, spatial_history, spatial_elapsed, spatial_converged = run_data_consistent_ring_augmentation(
         data_terms,
         prior,
         cfg,
     )
     spatial_summary = summary_row(
-        "bounded_ring_supported_augmentation",
+        "bounded_fast_ring_augmentation",
         u_spatial,
         data_terms,
         prior,
@@ -1104,7 +902,7 @@ def main():
         spatial_summary.update(spatial_history[-1]["aggregate"])
 
     print("\n" + "=" * 100)
-    print("2. Residual signed OT initialized from bounded ring-supported augmentation")
+    print("2. Residual signed OT initialized from data-consistent ring augmentation")
     print("=" * 100)
     u_ot, ot_history, ot_elapsed, ot_converged = run_residual_signed_ot_from_initialization(
         u_spatial,
@@ -1133,8 +931,6 @@ def main():
         **sequence_pairwise_diagnostics("prior_init", u_prior),
         **sequence_pairwise_diagnostics("spatial", u_spatial),
         **sequence_pairwise_diagnostics("ot", u_ot),
-        **residual_mass_diagnostics("spatial", u_spatial, prior),
-        **residual_mass_diagnostics("ot", u_ot, prior),
     }
     results_path = save_results_file(
         cfg=cfg,

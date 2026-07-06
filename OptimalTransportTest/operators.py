@@ -6,7 +6,7 @@ class VisibilitySampler:
 
     def __init__(self, u, v, weight=None, shape=(128, 128),
                  fov_rad=160e-6 / 206265.0, data_scale=1.0,
-                 use_cache=True, dtype=np.complex64):
+                 use_cache=True, dtype=np.complex64, chunk_size=256):
         self.u = np.asarray(u, dtype=np.float64)
         self.v = np.asarray(v, dtype=np.float64)
         self.weight = np.ones_like(self.u) if weight is None else np.asarray(weight, dtype=np.float64)
@@ -16,6 +16,7 @@ class VisibilitySampler:
         self.fov_rad = float(fov_rad)
         self.data_scale = float(max(data_scale, 1e-12))
         self.dtype = dtype
+        self.chunk_size = int(chunk_size)
         l = (np.arange(self.W) - self.W / 2) * self.fov_rad / self.W
         m = (np.arange(self.H) - self.H / 2) * self.fov_rad / self.H
         grid_l, grid_m = np.meshgrid(l, m)
@@ -38,8 +39,8 @@ class VisibilitySampler:
             result = self.A @ flat
         else:
             result = np.zeros(len(self.u), dtype=np.complex128)
-            for start in range(0, len(self.u), 512):
-                section = slice(start, min(start + 512, len(self.u)))
+            for start in range(0, len(self.u), self.chunk_size):
+                section = slice(start, min(start + self.chunk_size, len(self.u)))
                 phase = -2j * np.pi * (
                     self.u[section, None] * self.l_flat
                     + self.v[section, None] * self.m_flat
@@ -56,8 +57,8 @@ class VisibilitySampler:
             result = self.A.conj().T @ weighted
         else:
             result = np.zeros(self.H * self.W, dtype=np.complex128)
-            for start in range(0, len(self.u), 512):
-                section = slice(start, min(start + 512, len(self.u)))
+            for start in range(0, len(self.u), self.chunk_size):
+                section = slice(start, min(start + self.chunk_size, len(self.u)))
                 phase = 2j * np.pi * (
                     self.u[section, None] * self.l_flat
                     + self.v[section, None] * self.m_flat
