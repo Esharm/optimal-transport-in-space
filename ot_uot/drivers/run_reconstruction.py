@@ -18,8 +18,8 @@ from ot_uot.visualization.outputs import save_frame_pngs
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
-DEFAULT_OBSERVATIONS = PROJECT_ROOT / "blackhole_sim_testing" / "observations_12_npz"
-DEFAULT_STATIC = PROJECT_ROOT / "static_reconstruction" / "reconstructed_frames_gray_12"
+DEFAULT_OBSERVATIONS = PROJECT_ROOT / "blackhole_sim_testing" / "observations_fixed_npz"
+DEFAULT_STATIC = PROJECT_ROOT / "starwarps_results" / "resized_128"
 DEFAULT_GROUND_TRUTH = PROJECT_ROOT / "blackhole_sim" / "data" / "aart_frames"
 DEFAULT_OUTPUT = PROJECT_ROOT / "ot_uot_results"
 
