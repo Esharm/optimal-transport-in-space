@@ -84,8 +84,6 @@ field $s_t$, the discrete UOT action is
 
 $$
 \mathcal{A}_\gamma(\rho,m,s)
-============================
-
 \Delta t\sum_t\sum_x
 \left[
 \frac{|m_t(x)|^2}{2\rho_t(x)}
