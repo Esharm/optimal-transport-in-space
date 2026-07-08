@@ -1,0 +1,48 @@
+{
+  "results_folder": "ot_uot_pairwise_main7_12",
+  "results_file": "reconstruction.npz",
+  "output_subdir": "evaluation_from_npz",
+  "candidate_keys": null,
+  "default_candidate_keys": [
+    "background_video",
+    "static",
+    "warmup",
+    "ot",
+    "joint"
+  ],
+  "normalization": "flux",
+  "total_flux": 1.0,
+  "max_frames": null,
+  "metrics": {
+    "nrmse": true,
+    "ssim": true,
+    "frc": true,
+    "fourier_chi2": true,
+    "radial_profile_error": true,
+    "azimuthal_profile_error": true,
+    "temporal_variance_map_error": true,
+    "spatiotemporal_gradient_error": true
+  },
+  "spatiotemporal_gradient": {
+    "norm": "l2",
+    "spatial_weight": 1.0,
+    "temporal_weight": 1.0,
+    "use_absolute_gradients": false,
+    "epsilon": 1e-12
+  },
+  "frc_num_bins": null,
+  "frc_threshold": 0.143,
+  "frc_min_samples_per_ring": 1,
+  "fourier_chi2_mode": "complex",
+  "fourier_chi2_epsilon": 1e-08,
+  "fourier_chi2_denominator": "global_power",
+  "include_dc_in_fourier_chi2": false,
+  "radial_bins": 64,
+  "azimuthal_bins": 72,
+  "center_x": null,
+  "center_y": null,
+  "azimuthal_inner_radius": null,
+  "azimuthal_outer_radius": null,
+  "azimuthal_annulus_width_fraction": 0.25,
+  "allow_azimuthal_roll": false
+}
