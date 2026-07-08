@@ -20,7 +20,15 @@
     "fourier_chi2": true,
     "radial_profile_error": true,
     "azimuthal_profile_error": true,
-    "temporal_variance_map_error": true
+    "temporal_variance_map_error": true,
+    "spatiotemporal_gradient_error": true
+  },
+  "spatiotemporal_gradient": {
+    "norm": "l2",
+    "spatial_weight": 1.0,
+    "temporal_weight": 1.0,
+    "use_absolute_gradients": false,
+    "epsilon": 1e-12
   },
   "frc_num_bins": null,
   "frc_threshold": 0.143,
