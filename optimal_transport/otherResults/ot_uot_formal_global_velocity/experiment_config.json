@@ -1,0 +1,36 @@
+{
+  "extra": {
+    "background_mode": "mean",
+    "ground_truth": "/home/ethanks/projects/optimal-transport-in-space/blackhole_sim/data/aart_frames",
+    "ground_truth_loaded": true,
+    "max_frames": null,
+    "max_visibilities_per_frame": null,
+    "static_scale_mode": "per_frame"
+  },
+  "grid": {
+    "fov_rad": 7.757011611276756e-10,
+    "height": 128,
+    "width": 128
+  },
+  "params": {
+    "abs_tol": 0.0001,
+    "background_weight": 0.0001,
+    "decomposition_penalty": 0.001,
+    "dual_relaxation": 1.0,
+    "endpoint_penalty": 0.001,
+    "image_inner_iters": 50,
+    "max_admm_iters": 60,
+    "min_admm_iters": 12,
+    "patience": 5,
+    "random_seed": 0,
+    "rel_tol": 0.005,
+    "residual_mass_weight": 1e-06,
+    "source_weight": 30.0,
+    "transport_inner_iters": 100,
+    "transport_method": "global_velocity",
+    "transport_nodes": 7,
+    "transport_weight": 0.0001,
+    "tv_weight": 1e-05
+  },
+  "paths": null
+}

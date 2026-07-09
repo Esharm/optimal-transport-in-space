@@ -1,0 +1,110 @@
+{
+  "extra": {
+    "automatic_metrics": {
+      "delta_metrics": {
+        "delta_frame_nrmse": [
+          -0.00021213446797113678,
+          0.00012505339011098515,
+          0.00042082950583743894
+        ],
+        "delta_frame_ssim": [
+          0.0004088878042327604,
+          0.0005088840567786246,
+          0.00015606330353434839
+        ],
+        "delta_mean_frame_nrmse": 0.00011124947599244761,
+        "delta_mean_ssim": 0.0003579450548486518,
+        "delta_sequence_nrmse": 7.823476411311647e-05
+      },
+      "frames": 3,
+      "initialization_metrics": {
+        "frame_nrmse": [
+          0.27912616776490434,
+          0.37486500947933604,
+          0.3553442761915956
+        ],
+        "frame_ssim": [
+          0.848850819274088,
+          0.8293785598878491,
+          0.8612532307801782
+        ],
+        "frames": 3,
+        "mean_frame_nrmse": 0.3364451511452787,
+        "mean_ssim": 0.8464942033140385,
+        "normalization": "minmax",
+        "sequence_nrmse": 0.33029181351542847,
+        "total_flux": 1.0
+      },
+      "normalization": "minmax",
+      "post_uot_metrics": {
+        "frame_nrmse": [
+          0.2789140332969332,
+          0.374990062869447,
+          0.355765105697433
+        ],
+        "frame_ssim": [
+          0.8492597070783208,
+          0.8298874439446278,
+          0.8614092940837126
+        ],
+        "frames": 3,
+        "mean_frame_nrmse": 0.3365564006212711,
+        "mean_ssim": 0.8468521483688871,
+        "normalization": "minmax",
+        "sequence_nrmse": 0.3303700482795416,
+        "total_flux": 1.0
+      },
+      "total_flux": 1.0
+    },
+    "background": "/home/ethanks/projects/optimal-transport-in-space/starwarps_results/resized_128",
+    "background_mode": "mean",
+    "background_scale_mode": "per_frame",
+    "frame_metrics_csv": "ot_uot_starwarps_reference_converged_3frame/frame_metrics.csv",
+    "ground_truth": "/home/ethanks/projects/optimal-transport-in-space/blackhole_sim/data/aart_frames",
+    "ground_truth_loaded": true,
+    "initialization": "/home/ethanks/projects/optimal-transport-in-space/starwarps_results/resized_128",
+    "initialization_scale_mode": "per_frame",
+    "max_frames": 3,
+    "max_visibilities_per_frame": null,
+    "metric_normalization": "minmax",
+    "metric_total_flux": 1.0,
+    "metrics_summary_json": "ot_uot_starwarps_reference_converged_3frame/metrics_summary.json",
+    "mode": "reference_postprocess",
+    "reference": "/home/ethanks/projects/optimal-transport-in-space/starwarps_results/resized_128",
+    "reference_postprocess": true,
+    "reference_scale_mode": "per_frame"
+  },
+  "grid": {
+    "fov_rad": 7.757011611276756e-10,
+    "height": 128,
+    "width": 128
+  },
+  "params": {
+    "abs_tol": 0.0001,
+    "background_weight": 0.0,
+    "data_weight": 0.0,
+    "decomposition_penalty": 0.001,
+    "dual_relaxation": 1.0,
+    "endpoint_penalty": 0.001,
+    "image_inner_iters": 50,
+    "max_admm_iters": 100,
+    "min_admm_iters": 20,
+    "patience": 8,
+    "random_seed": 0,
+    "reference_weight": 1.0,
+    "rel_tol": 0.005,
+    "residual_mass_weight": 0.0,
+    "source_weight": 10.0,
+    "transport_inner_iters": 150,
+    "transport_method": "pairwise_uot",
+    "transport_nodes": 7,
+    "transport_weight": 0.0001,
+    "tv_weight": 0.0
+  },
+  "paths": {
+    "ground_truth_dir": "/home/ethanks/projects/optimal-transport-in-space/blackhole_sim/data/aart_frames",
+    "observations_dir": "/home/ethanks/projects/optimal-transport-in-space/blackhole_sim_testing/observations_fixed_npz",
+    "output_dir": "ot_uot_starwarps_reference_converged_3frame",
+    "static_reconstruction_dir": "/home/ethanks/projects/optimal-transport-in-space/starwarps_results/resized_128"
+  }
+}

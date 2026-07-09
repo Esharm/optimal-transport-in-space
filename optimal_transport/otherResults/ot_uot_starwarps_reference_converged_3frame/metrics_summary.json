@@ -1,0 +1,56 @@
+{
+  "normalization": "minmax",
+  "total_flux": 1.0,
+  "frames": 3,
+  "initialization_metrics": {
+    "normalization": "minmax",
+    "total_flux": 1.0,
+    "frames": 3,
+    "mean_frame_nrmse": 0.3364451511452787,
+    "mean_ssim": 0.8464942033140385,
+    "frame_nrmse": [
+      0.27912616776490434,
+      0.37486500947933604,
+      0.3553442761915956
+    ],
+    "frame_ssim": [
+      0.848850819274088,
+      0.8293785598878491,
+      0.8612532307801782
+    ],
+    "sequence_nrmse": 0.33029181351542847
+  },
+  "post_uot_metrics": {
+    "normalization": "minmax",
+    "total_flux": 1.0,
+    "frames": 3,
+    "mean_frame_nrmse": 0.3365564006212711,
+    "mean_ssim": 0.8468521483688871,
+    "frame_nrmse": [
+      0.2789140332969332,
+      0.374990062869447,
+      0.355765105697433
+    ],
+    "frame_ssim": [
+      0.8492597070783208,
+      0.8298874439446278,
+      0.8614092940837126
+    ],
+    "sequence_nrmse": 0.3303700482795416
+  },
+  "delta_metrics": {
+    "delta_mean_frame_nrmse": 0.00011124947599244761,
+    "delta_mean_ssim": 0.0003579450548486518,
+    "delta_sequence_nrmse": 7.823476411311647e-05,
+    "delta_frame_nrmse": [
+      -0.00021213446797113678,
+      0.00012505339011098515,
+      0.00042082950583743894
+    ],
+    "delta_frame_ssim": [
+      0.0004088878042327604,
+      0.0005088840567786246,
+      0.00015606330353434839
+    ]
+  }
+}

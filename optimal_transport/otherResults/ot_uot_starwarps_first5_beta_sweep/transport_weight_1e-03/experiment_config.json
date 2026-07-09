@@ -1,0 +1,287 @@
+{
+  "extra": {
+    "automatic_metrics": {
+      "delta_metrics": {
+        "delta_frame_nrmse": [
+          -0.0007490060595652936,
+          0.0006209474319057717,
+          0.00197547680946486,
+          0.0011025694420529475,
+          0.0035617410462466803
+        ],
+        "delta_frame_spatial_gradient_nrmse": [
+          -0.0007535519130499324,
+          -2.7726915713621736e-05,
+          0.00014254312747408182,
+          -0.0002494626321807303,
+          0.000806979572931521
+        ],
+        "delta_frame_ssim": [
+          0.0014340875628400251,
+          0.0016093918608968139,
+          0.0006272344364023352,
+          0.000933611327340822,
+          0.0021013023731708547
+        ],
+        "delta_interval_temporal_gradient_nrmse": [
+          -0.001140544149656031,
+          -0.003691199693441005,
+          -0.004156169236068874,
+          -0.009051008433007324
+        ],
+        "delta_mean_frame_nrmse": 0.0013023457340210487,
+        "delta_mean_ssim": 0.0013411255121302812,
+        "delta_sequence_nrmse": 0.0012446272545912906,
+        "delta_stge": -0.0020727784022221973,
+        "delta_stge_spatial": -3.7578496763335245e-05,
+        "delta_stge_temporal": -0.004672716228546148
+      },
+      "fourier_metrics": {
+        "delta_fourier_metrics": {
+          "delta_fourier_chi2": -9.939497768735045e-09,
+          "delta_fourier_complex_reduced_chi2": -4.173804387644076e-13,
+          "delta_fourier_data_term_value": -4.9697488843675224e-09,
+          "delta_fourier_reduced_chi2": -2.086902193822038e-13,
+          "delta_frame_fourier_complex_reduced_chi2": [
+            -5.621318775860699e-13,
+            2.586369475940084e-12,
+            -5.4964740885058446e-14,
+            -2.833132233683541e-13,
+            -3.531491279452786e-12
+          ],
+          "delta_frame_fourier_reduced_chi2": [
+            -2.8106593879303497e-13,
+            1.293184737970042e-12,
+            -2.7482370442529223e-14,
+            -1.4165661168417705e-13,
+            -1.765745639726393e-12
+          ]
+        },
+        "initialization_fourier_metrics": {
+          "fourier_chi2": 1.6262233805146177e-05,
+          "fourier_complex_reduced_chi2": 6.828854373539169e-10,
+          "fourier_data_term_value": 8.131116902573089e-06,
+          "fourier_degrees_of_freedom": 47628,
+          "fourier_reduced_chi2": 3.4144271867695845e-10,
+          "fourier_visibility_count": 23814,
+          "frame_fourier_chi2": [
+            3.1679934952114074e-06,
+            3.156768005648591e-06,
+            3.5115374051707824e-06,
+            3.373659773616226e-06,
+            3.052275125499169e-06
+          ],
+          "frame_fourier_complex_reduced_chi2": [
+            6.446873209628424e-10,
+            6.959365091817881e-10,
+            7.145985765508307e-10,
+            7.437521546772985e-10,
+            6.2113860917769e-10
+          ],
+          "frame_fourier_reduced_chi2": [
+            3.223436604814212e-10,
+            3.4796825459089407e-10,
+            3.5729928827541537e-10,
+            3.7187607733864923e-10,
+            3.10569304588845e-10
+          ],
+          "frame_visibility_count": [
+            4914,
+            4536,
+            4914,
+            4536,
+            4914
+          ]
+        },
+        "post_uot_fourier_metrics": {
+          "fourier_chi2": 1.6252294307377442e-05,
+          "fourier_complex_reduced_chi2": 6.824680569151525e-10,
+          "fourier_data_term_value": 8.126147153688721e-06,
+          "fourier_degrees_of_freedom": 47628,
+          "fourier_reduced_chi2": 3.4123402845757625e-10,
+          "fourier_visibility_count": 23814,
+          "frame_fourier_chi2": [
+            3.1652311791649494e-06,
+            3.1684997775914553e-06,
+            3.511267308434073e-06,
+            3.3723746648350268e-06,
+            3.034921377351938e-06
+          ],
+          "frame_fourier_complex_reduced_chi2": [
+            6.441251890852563e-10,
+            6.985228786577282e-10,
+            7.145436118099457e-10,
+            7.434688414539301e-10,
+            6.176071178982372e-10
+          ],
+          "frame_fourier_reduced_chi2": [
+            3.2206259454262816e-10,
+            3.492614393288641e-10,
+            3.5727180590497284e-10,
+            3.7173442072696506e-10,
+            3.088035589491186e-10
+          ],
+          "frame_visibility_count": [
+            4914,
+            4536,
+            4914,
+            4536,
+            4914
+          ]
+        }
+      },
+      "frames": 5,
+      "initialization_metrics": {
+        "frame_nrmse": [
+          0.27912616776490434,
+          0.37486500947933604,
+          0.3553442761915956,
+          0.4189439082385298,
+          0.3783161227269273
+        ],
+        "frame_spatial_gradient_nrmse": [
+          0.9022913268321432,
+          0.9550700379270339,
+          0.8925788896983575,
+          0.8643456995274724,
+          0.8629013609603293
+        ],
+        "frame_ssim": [
+          0.8488508192740858,
+          0.8293785598878517,
+          0.8612532307801782,
+          0.8076086681811456,
+          0.7067407566393764
+        ],
+        "frames": 5,
+        "interval_temporal_gradient_nrmse": [
+          0.7594469361694204,
+          0.6407885648235225,
+          0.7537777873730888,
+          0.6903076980423816
+        ],
+        "mean_frame_nrmse": 0.3613190968802586,
+        "mean_ssim": 0.8107664069525274,
+        "normalization": "minmax",
+        "sequence_nrmse": 0.35719874379241356,
+        "stge": 0.8092666959860234,
+        "stge_lambda": 0.6313000100555771,
+        "stge_lambda_mode": "auto",
+        "stge_spatial": 0.8958931146786733,
+        "stge_spatial_reference_norm": 7.6222094265983635,
+        "stge_temporal": 0.7121802423092174,
+        "stge_temporal_reference_norm": 12.073830675097462,
+        "total_flux": 1.0
+      },
+      "normalization": "minmax",
+      "post_uot_metrics": {
+        "frame_nrmse": [
+          0.27837716170533905,
+          0.3754859569112418,
+          0.35731975300106045,
+          0.42004647768058273,
+          0.38187786377317395
+        ],
+        "frame_spatial_gradient_nrmse": [
+          0.9015377749190933,
+          0.9550423110113203,
+          0.8927214328258316,
+          0.8640962368952917,
+          0.8637083405332608
+        ],
+        "frame_ssim": [
+          0.8502849068369258,
+          0.8309879517487485,
+          0.8618804652165806,
+          0.8085422795084865,
+          0.7088420590125473
+        ],
+        "frames": 5,
+        "interval_temporal_gradient_nrmse": [
+          0.7583063920197644,
+          0.6370973651300815,
+          0.7496216181370199,
+          0.6812566896093742
+        ],
+        "mean_frame_nrmse": 0.36262144261427964,
+        "mean_ssim": 0.8121075324646577,
+        "normalization": "minmax",
+        "sequence_nrmse": 0.35844337104700486,
+        "stge": 0.8071939175838012,
+        "stge_lambda": 0.6313000100555771,
+        "stge_lambda_mode": "auto",
+        "stge_spatial": 0.8958555361819099,
+        "stge_spatial_reference_norm": 7.6222094265983635,
+        "stge_temporal": 0.7075075260806712,
+        "stge_temporal_reference_norm": 12.073830675097462,
+        "total_flux": 1.0
+      },
+      "stge_lambda": 0.6313000100555771,
+      "stge_lambda_mode": "auto",
+      "total_flux": 1.0
+    },
+    "background": "/home/ethanks/projects/optimal-transport-in-space/starwarps_results/resized_128",
+    "background_mode": "mean",
+    "background_scale_mode": "per_frame",
+    "frame_metrics_csv": "ot_uot_starwarps_first5_beta_sweep/transport_weight_1e-03/frame_metrics.csv",
+    "ground_truth": "/home/ethanks/projects/optimal-transport-in-space/blackhole_sim/data/aart_frames",
+    "ground_truth_loaded": true,
+    "initialization": "/home/ethanks/projects/optimal-transport-in-space/starwarps_results/resized_128",
+    "initialization_scale_mode": "per_frame",
+    "max_frames": 5,
+    "max_visibilities_per_frame": null,
+    "metric_normalization": "minmax",
+    "metric_total_flux": 1.0,
+    "metrics_summary_json": "ot_uot_starwarps_first5_beta_sweep/transport_weight_1e-03/metrics_summary.json",
+    "mode": "reference_postprocess",
+    "reference": "/home/ethanks/projects/optimal-transport-in-space/starwarps_results/resized_128",
+    "reference_postprocess": true,
+    "reference_scale_mode": "per_frame",
+    "stge_lambda": "auto",
+    "sweep_index": 5,
+    "sweep_root_output": "ot_uot_starwarps_first5_beta_sweep",
+    "sweep_total": 6,
+    "sweep_transport_weights": [
+      1e-08,
+      1e-07,
+      1e-06,
+      1e-05,
+      0.0001,
+      0.001
+    ],
+    "transport_weight_sweep": true
+  },
+  "grid": {
+    "fov_rad": 7.757011611276756e-10,
+    "height": 128,
+    "width": 128
+  },
+  "params": {
+    "abs_tol": 0.0001,
+    "background_weight": 0.0,
+    "data_weight": 0.0,
+    "decomposition_penalty": 0.001,
+    "dual_relaxation": 1.0,
+    "endpoint_penalty": 0.001,
+    "image_inner_iters": 50,
+    "max_admm_iters": 100,
+    "min_admm_iters": 20,
+    "patience": 8,
+    "random_seed": 0,
+    "reference_weight": 0.3,
+    "rel_tol": 0.005,
+    "residual_mass_weight": 0.0,
+    "source_weight": 10.0,
+    "transport_inner_iters": 150,
+    "transport_method": "pairwise_uot",
+    "transport_nodes": 7,
+    "transport_weight": 0.001,
+    "tv_weight": 0.0
+  },
+  "paths": {
+    "ground_truth_dir": "/home/ethanks/projects/optimal-transport-in-space/blackhole_sim/data/aart_frames",
+    "observations_dir": "/home/ethanks/projects/optimal-transport-in-space/blackhole_sim_testing/observations_fixed_npz",
+    "output_dir": "ot_uot_starwarps_first5_beta_sweep/transport_weight_1e-03",
+    "static_reconstruction_dir": "/home/ethanks/projects/optimal-transport-in-space/starwarps_results/resized_128"
+  }
+}

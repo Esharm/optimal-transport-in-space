@@ -1,0 +1,102 @@
+{
+  "normalization": "minmax",
+  "total_flux": 1.0,
+  "frames": 3,
+  "stge_lambda": 0.6969511638998657,
+  "stge_lambda_mode": "auto",
+  "initialization_metrics": {
+    "normalization": "minmax",
+    "total_flux": 1.0,
+    "frames": 3,
+    "mean_frame_nrmse": 0.3364451511452787,
+    "mean_ssim": 0.8464942033140385,
+    "frame_nrmse": [
+      0.27912616776490434,
+      0.37486500947933604,
+      0.3553442761915956
+    ],
+    "frame_ssim": [
+      0.848850819274088,
+      0.8293785598878491,
+      0.8612532307801782
+    ],
+    "sequence_nrmse": 0.33029181351542847,
+    "stge": 0.8194956068230161,
+    "stge_spatial": 0.9177032753533854,
+    "stge_temporal": 0.7077900801862905,
+    "stge_lambda": 0.6969511638998657,
+    "stge_lambda_mode": "auto",
+    "stge_spatial_reference_norm": 5.8551516051933055,
+    "stge_temporal_reference_norm": 8.401093087254738,
+    "frame_spatial_gradient_nrmse": [
+      0.9022913268321432,
+      0.9550700379270338,
+      0.8925788896983575
+    ],
+    "interval_temporal_gradient_nrmse": [
+      0.7594469361694204,
+      0.6407885648235225
+    ]
+  },
+  "post_uot_metrics": {
+    "normalization": "minmax",
+    "total_flux": 1.0,
+    "frames": 3,
+    "mean_frame_nrmse": 0.3368431483621981,
+    "mean_ssim": 0.8476761779775558,
+    "frame_nrmse": [
+      0.27842908815409045,
+      0.37529320529114946,
+      0.3568071516413544
+    ],
+    "frame_ssim": [
+      0.8502079990344453,
+      0.8310586657144146,
+      0.8617618691838075
+    ],
+    "sequence_nrmse": 0.3305774564890137,
+    "stge": 0.8179033054322129,
+    "stge_spatial": 0.9173661703104411,
+    "stge_temporal": 0.7045359775368708,
+    "stge_lambda": 0.6969511638998657,
+    "stge_lambda_mode": "auto",
+    "stge_spatial_reference_norm": 5.8551516051933055,
+    "stge_temporal_reference_norm": 8.401093087254738,
+    "frame_spatial_gradient_nrmse": [
+      0.9015536766649798,
+      0.9549921305185683,
+      0.8925656527992117
+    ],
+    "interval_temporal_gradient_nrmse": [
+      0.7579222118957374,
+      0.635053772924249
+    ]
+  },
+  "delta_metrics": {
+    "delta_mean_frame_nrmse": 0.00039799721691941015,
+    "delta_mean_ssim": 0.0011819746635173267,
+    "delta_sequence_nrmse": 0.0002856429735852428,
+    "delta_stge": -0.0015923013908032413,
+    "delta_stge_spatial": -0.00033710504294426347,
+    "delta_stge_temporal": -0.003254102649419721,
+    "delta_frame_nrmse": [
+      -0.0006970796108138888,
+      0.0004281958118134144,
+      0.001462875449758816
+    ],
+    "delta_frame_ssim": [
+      0.0013571797603573188,
+      0.0016801058265654145,
+      0.0005086384036292468
+    ],
+    "delta_frame_spatial_gradient_nrmse": [
+      -0.0007376501671634283,
+      -7.790740846547184e-05,
+      -1.3236899145785408e-05
+    ],
+    "delta_interval_temporal_gradient_nrmse": [
+      -0.001524724273682998,
+      -0.005734791899273506
+    ]
+  }
+}

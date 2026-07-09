@@ -1,0 +1,72 @@
+{
+  "extra": {
+    "automatic_metrics": {
+      "frame_nrmse": [
+        0.915605961094024,
+        1.0201371873910112,
+        1.0793716690737023
+      ],
+      "frame_ssim": [
+        0.5619061124957645,
+        0.6086170743437381,
+        0.6297151700720314
+      ],
+      "frames": 3,
+      "mean_frame_nrmse": 1.0050382725195792,
+      "mean_ssim": 0.6000794523038447,
+      "normalization": "minmax",
+      "sequence_nrmse": 0.9911412164874792,
+      "total_flux": 1.0
+    },
+    "background": "/home/ethanks/projects/optimal-transport-in-space/static_reconstruction/reconstructed_frames_gray",
+    "background_mode": "mean",
+    "background_scale_mode": "per_frame",
+    "frame_metrics_csv": "ot_uot_smoke_metric_minmax/frame_metrics.csv",
+    "ground_truth": "/home/ethanks/projects/optimal-transport-in-space/blackhole_sim/data/aart_frames",
+    "ground_truth_loaded": true,
+    "initialization": "/home/ethanks/projects/optimal-transport-in-space/static_reconstruction/reconstructed_frames_gray",
+    "initialization_scale_mode": "per_frame",
+    "max_frames": 3,
+    "max_visibilities_per_frame": 750,
+    "metric_normalization": "minmax",
+    "metric_total_flux": 1.0,
+    "metrics_summary_json": "ot_uot_smoke_metric_minmax/metrics_summary.json",
+    "mode": "joint_reconstruction",
+    "reference": null,
+    "reference_postprocess": false,
+    "reference_scale_mode": "per_frame"
+  },
+  "grid": {
+    "fov_rad": 7.757011611276756e-10,
+    "height": 128,
+    "width": 128
+  },
+  "params": {
+    "abs_tol": 0.0001,
+    "background_weight": 0.0001,
+    "data_weight": 1.0,
+    "decomposition_penalty": 0.001,
+    "dual_relaxation": 1.0,
+    "endpoint_penalty": 0.001,
+    "image_inner_iters": 10,
+    "max_admm_iters": 2,
+    "min_admm_iters": 1,
+    "patience": 10,
+    "random_seed": 0,
+    "reference_weight": 0.0,
+    "rel_tol": 0.005,
+    "residual_mass_weight": 0.0,
+    "source_weight": 10.0,
+    "transport_inner_iters": 10,
+    "transport_method": "pairwise_uot",
+    "transport_nodes": 3,
+    "transport_weight": 0.0001,
+    "tv_weight": 0.0
+  },
+  "paths": {
+    "ground_truth_dir": "/home/ethanks/projects/optimal-transport-in-space/blackhole_sim/data/aart_frames",
+    "observations_dir": "/home/ethanks/projects/optimal-transport-in-space/blackhole_sim_testing/observations_npz",
+    "output_dir": "ot_uot_smoke_metric_minmax",
+    "static_reconstruction_dir": "/home/ethanks/projects/optimal-transport-in-space/static_reconstruction/reconstructed_frames_gray"
+  }
+}
