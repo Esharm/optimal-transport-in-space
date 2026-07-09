@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import importlib
+import json
 from pathlib import Path
 import tempfile
 import unittest
@@ -184,3 +185,199 @@ class PipelineIOTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+class ReferencePostprocessCLITests(unittest.TestCase):
+    def test_reference_postprocess_cli_smoke(self) -> None:
+        from PIL import Image
+        from ot_uot.drivers.run_reconstruction import main as driver_main
+
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            obs_dir = tmp_path / "obs"
+            init_dir = tmp_path / "init"
+            gt_dir = tmp_path / "gt"
+            out_dir = tmp_path / "out"
+            obs_dir.mkdir()
+            init_dir.mkdir()
+            gt_dir.mkdir()
+            for k in range(2):
+                image = np.zeros((6, 6), dtype=np.float64)
+                image[2, 2 + k] = 1.0
+                image_uint8 = np.asarray(255 * image, dtype=np.uint8)
+                Image.fromarray(image_uint8).save(init_dir / f"frame_{k:04d}.png")
+                Image.fromarray(image_uint8).save(gt_dir / f"frame_{k:03d}.png")
+                np.savez(
+                    obs_dir / f"frame_{k:04d}.npz",
+                    u=np.asarray([0.0, 0.25]),
+                    v=np.asarray([0.0, -0.15]),
+                    vis=np.asarray([1.0 + 0.0j, 0.2 + 0.1j]),
+                    sigma=np.asarray([1.0, 1.0]),
+                )
+            rc = driver_main([
+                "--observations", str(obs_dir),
+                "--initialization", str(init_dir),
+                "--ground-truth", str(gt_dir),
+                "--output", str(out_dir),
+                "--height", "6",
+                "--width", "6",
+                "--fov-rad", "1.0",
+                "--reference-postprocess",
+                "--max-admm-iters", "1",
+                "--min-admm-iters", "1",
+                "--transport-inner-iters", "5",
+                "--image-inner-iters", "5",
+                "--quiet",
+            ])
+            self.assertEqual(rc, 0)
+            loaded = load_reconstruction_npz(out_dir / "reconstruction.npz")
+            self.assertIn("reference_sequence", loaded)
+            self.assertIn("starwarps_reference", loaded)
+            # Backward-compatible final metric aliases.
+            self.assertIn("metric_mean_frame_nrmse", loaded)
+            self.assertIn("metric_mean_ssim", loaded)
+            # Explicit initialization/final/delta metric keys.
+            self.assertIn("metric_init_mean_frame_nrmse", loaded)
+            self.assertIn("metric_init_mean_ssim", loaded)
+            self.assertIn("metric_final_mean_frame_nrmse", loaded)
+            self.assertIn("metric_final_mean_ssim", loaded)
+            self.assertIn("metric_delta_mean_frame_nrmse", loaded)
+            self.assertIn("metric_delta_mean_ssim", loaded)
+            self.assertTrue((out_dir / "metrics_summary.json").exists())
+            self.assertTrue((out_dir / "frame_metrics.csv").exists())
+            metadata = loaded["metadata"]
+            self.assertEqual(metadata["config"]["data_weight"], 0.0)
+            self.assertEqual(metadata["config"]["tv_weight"], 0.0)
+            self.assertEqual(metadata["config"]["background_weight"], 0.0)
+            self.assertEqual(metadata["config"]["reference_weight"], 1.0)
+            automatic_metrics = metadata["extra"]["automatic_metrics"]
+            self.assertIn("initialization_metrics", automatic_metrics)
+            self.assertIn("post_uot_metrics", automatic_metrics)
+            self.assertIn("delta_metrics", automatic_metrics)
+            init_metrics = automatic_metrics["initialization_metrics"]
+            final_metrics = automatic_metrics["post_uot_metrics"]
+            self.assertIn("mean_frame_nrmse", init_metrics)
+            self.assertIn("mean_ssim", init_metrics)
+            self.assertIn("mean_frame_nrmse", final_metrics)
+            self.assertIn("mean_ssim", final_metrics)
+            self.assertTrue(np.isfinite(init_metrics["mean_frame_nrmse"]))
+            self.assertTrue(np.isfinite(init_metrics["mean_ssim"]))
+            self.assertTrue(np.isfinite(final_metrics["mean_frame_nrmse"]))
+            self.assertTrue(np.isfinite(final_metrics["mean_ssim"]))
+            csv_text = (out_dir / "frame_metrics.csv").read_text()
+            self.assertIn("initialization_nrmse", csv_text)
+            self.assertIn("post_uot_ssim", csv_text)
+
+
+
+class STGEMetricTests(unittest.TestCase):
+    def test_stge_identity_and_manual_lambda(self) -> None:
+        from ot_uot.evaluation.metrics import compare_initialization_and_final_fourier_reports, compare_initialization_and_final_reports, spatiotemporal_gradient_error
+
+        gt = np.zeros((3, 5, 5), dtype=np.float64)
+        for k in range(3):
+            gt[k, 2, 1 + k] = 1.0
+        report = spatiotemporal_gradient_error(gt, gt, temporal_weight="0.5")
+        self.assertAlmostEqual(report["stge"], 0.0)
+        self.assertAlmostEqual(report["stge_lambda"], 0.5)
+        self.assertEqual(report["stge_lambda_mode"], "manual")
+
+        combined = compare_initialization_and_final_reports(
+            gt,
+            gt,
+            gt,
+            normalization="minmax",
+            stge_lambda="auto",
+        )
+        self.assertIn("stge", combined["initialization_metrics"])
+        self.assertIn("stge_temporal", combined["post_uot_metrics"])
+        self.assertIn("delta_stge", combined["delta_metrics"])
+        self.assertAlmostEqual(combined["initialization_metrics"]["stge"], 0.0)
+        self.assertAlmostEqual(combined["post_uot_metrics"]["stge"], 0.0)
+        self.assertAlmostEqual(combined["delta_metrics"]["delta_stge"], 0.0)
+
+    def test_fourier_chi2_identity(self) -> None:
+        from ot_uot.evaluation.metrics import compare_initialization_and_final_fourier_reports
+
+        image = np.zeros((5, 5), dtype=np.float64)
+        image[2, 2] = 1.0
+        data_term = make_data_term(image)
+        sequence = np.stack([image, image])
+        report = compare_initialization_and_final_fourier_reports(sequence, sequence, [data_term, data_term])
+        init = report["initialization_fourier_metrics"]
+        final = report["post_uot_fourier_metrics"]
+        delta = report["delta_fourier_metrics"]
+        self.assertAlmostEqual(init["fourier_chi2"], 0.0, places=12)
+        self.assertAlmostEqual(final["fourier_reduced_chi2"], 0.0, places=12)
+        self.assertAlmostEqual(delta["delta_fourier_reduced_chi2"], 0.0, places=12)
+
+
+class TransportWeightSweepCLITests(unittest.TestCase):
+    def test_transport_weight_sweep_cli_smoke(self) -> None:
+        from PIL import Image
+        from ot_uot.drivers.run_reconstruction import main as driver_main
+
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            obs_dir = tmp_path / "obs"
+            init_dir = tmp_path / "init"
+            gt_dir = tmp_path / "gt"
+            out_dir = tmp_path / "sweep_out"
+            obs_dir.mkdir()
+            init_dir.mkdir()
+            gt_dir.mkdir()
+            for k in range(2):
+                image = np.zeros((6, 6), dtype=np.float64)
+                image[2, 2 + k] = 1.0
+                image_uint8 = np.asarray(255 * image, dtype=np.uint8)
+                Image.fromarray(image_uint8).save(init_dir / f"frame_{k:04d}.png")
+                Image.fromarray(image_uint8).save(gt_dir / f"frame_{k:03d}.png")
+                np.savez(
+                    obs_dir / f"frame_{k:04d}.npz",
+                    u=np.asarray([0.0, 0.25]),
+                    v=np.asarray([0.0, -0.15]),
+                    vis=np.asarray([1.0 + 0.0j, 0.2 + 0.1j]),
+                    sigma=np.asarray([1.0, 1.0]),
+                )
+            rc = driver_main([
+                "--observations", str(obs_dir),
+                "--initialization", str(init_dir),
+                "--ground-truth", str(gt_dir),
+                "--output", str(out_dir),
+                "--height", "6",
+                "--width", "6",
+                "--fov-rad", "1.0",
+                "--max-frames", "2",
+                "--sweep-transport-weights", "1e-8,1e-6",
+                "--tv-weight", "0.0",
+                "--background-weight", "0.0",
+                "--residual-mass-weight", "0.0",
+                "--transport-inner-iters", "3",
+                "--image-inner-iters", "3",
+                "--max-admm-iters", "1",
+                "--min-admm-iters", "1",
+                "--metric-normalization", "minmax",
+                "--quiet",
+            ])
+            self.assertEqual(rc, 0)
+            self.assertTrue((out_dir / "sweep_summary.json").exists())
+            self.assertTrue((out_dir / "sweep_summary.csv").exists())
+            summary = json.loads((out_dir / "sweep_summary.json").read_text(encoding="utf-8"))
+            self.assertEqual(summary["sweep_parameter"], "transport_weight")
+            self.assertEqual(len(summary["runs"]), 2)
+            for label in ("transport_weight_1e-08", "transport_weight_1e-06"):
+                run_dir = out_dir / label
+                self.assertTrue((run_dir / "reconstruction.npz").exists())
+                self.assertTrue((run_dir / "metrics_summary.json").exists())
+                loaded = load_reconstruction_npz(run_dir / "reconstruction.npz")
+                self.assertTrue(loaded["metadata"]["extra"]["transport_weight_sweep"])
+                metrics = json.loads((run_dir / "metrics_summary.json").read_text(encoding="utf-8"))
+                self.assertIn("fourier_metrics", metrics)
+                self.assertIn("fourier_reduced_chi2", metrics["fourier_metrics"]["post_uot_fourier_metrics"])
+
+    def test_transport_weight_sweep_parser(self) -> None:
+        from ot_uot.drivers.run_reconstruction import _parse_transport_weight_sweep, _transport_weight_label
+
+        self.assertIsNone(_parse_transport_weight_sweep(None))
+        self.assertEqual(_parse_transport_weight_sweep([]), [1e-8, 1e-7, 1e-6, 1e-5, 1e-4, 1e-3])
+        self.assertEqual(_parse_transport_weight_sweep(["1e-8,1e-6", "1e-4"]), [1e-8, 1e-6, 1e-4])
+        self.assertEqual(_transport_weight_label(1e-8), "transport_weight_1e-08")

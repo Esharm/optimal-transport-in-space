@@ -45,12 +45,16 @@ class ImageResidualUpdater:
         residual_mass_weight: float,
         decomposition_penalty: float,
         iterations: int,
+        data_weight: float = 1.0,
+        reference_weight: float = 0.0,
         tau_cap: float = 10.0,
         dual_sigma: float = 0.25,
         data_power_iters: int = 8,
     ):
+        self.data_weight = float(data_weight)
         self.tv_weight = float(tv_weight)
         self.background_weight = float(background_weight)
+        self.reference_weight = float(reference_weight)
         self.residual_mass_weight = float(residual_mass_weight)
         self.decomposition_penalty = float(decomposition_penalty)
         self.iterations = int(iterations)
@@ -80,12 +84,15 @@ class ImageResidualUpdater:
         return estimate
 
     def _step_size(self, data_terms, image_shape, pos_targets: ChannelTargets, neg_targets: ChannelTargets) -> float:
-        data_lip = max(self._data_lipschitz(term, image_shape) for term in data_terms)
+        if self.data_weight > 0.0 and len(data_terms) > 0:
+            data_lip = self.data_weight * max(self._data_lipschitz(term, image_shape) for term in data_terms)
+        else:
+            data_lip = 0.0
         endpoint_lip = float(
             max(np.max(pos_targets.weight_sum), np.max(neg_targets.weight_sum), 0.0)
         )
         # Conservative coupled-variable smooth bound for (u,p,n).
-        smooth_lip = data_lip + self.background_weight + 6.0 * self.decomposition_penalty + endpoint_lip
+        smooth_lip = data_lip + self.background_weight + self.reference_weight + 6.0 * self.decomposition_penalty + endpoint_lip
         if self.tv_weight > 0.0:
             safe = 0.99 / (0.5 * smooth_lip + 8.0 * self.dual_sigma)
         else:
@@ -99,6 +106,7 @@ class ImageResidualUpdater:
         decomposition_dual: np.ndarray,
         positive_targets: ChannelTargets,
         negative_targets: ChannelTargets,
+        reference_sequence: np.ndarray | None = None,
     ) -> tuple[ImageResidualState, ImageResidualUpdateInfo]:
         """Solve the image/residual ADMM subproblem."""
 
@@ -106,6 +114,12 @@ class ImageResidualUpdater:
         p = state.positive.copy()
         n = state.negative.copy()
         background = as_background_sequence(state.background, u.shape[0])
+        if reference_sequence is not None:
+            reference_sequence = np.asarray(reference_sequence, dtype=np.float64)
+            if reference_sequence.shape != u.shape:
+                raise ValueError("reference_sequence shape must match image sequence")
+        elif self.reference_weight > 0.0:
+            raise ValueError("reference_sequence is required when reference_weight > 0")
         decomposition_dual = np.asarray(decomposition_dual, dtype=np.float64)
         if decomposition_dual.shape != u.shape:
             raise ValueError("decomposition_dual shape must match image sequence")
@@ -131,10 +145,13 @@ class ImageResidualUpdater:
             old_u = u.copy()
             constraint = u - background - p + n + decomposition_dual
 
-            grad_u = np.empty_like(u)
-            for k, term in enumerate(data_terms):
-                grad_u[k] = term.gradient(u[k])
+            grad_u = np.zeros_like(u)
+            if self.data_weight > 0.0:
+                for k, term in enumerate(data_terms):
+                    grad_u[k] = self.data_weight * term.gradient(u[k])
             grad_u += self.background_weight * (u - background)
+            if self.reference_weight > 0.0:
+                grad_u += self.reference_weight * (u - reference_sequence)
             grad_u += self.decomposition_penalty * constraint
             if self.tv_weight > 0.0:
                 for k in range(u.shape[0]):

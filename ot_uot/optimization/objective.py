@@ -24,6 +24,7 @@ class ObjectiveBreakdown:
     data: float
     tv: float
     background: float
+    reference: float
     residual_mass: float
     transport: float
 
@@ -78,21 +79,31 @@ def objective_breakdown(
     transport_state: Any,
     data_terms,
     params: UOTParameters,
+    reference_sequence: np.ndarray | None = None,
 ) -> ObjectiveBreakdown:
     """Evaluate the unaugmented reconstruction objective."""
 
-    data = float(sum(term.value(frame) for term, frame in zip(data_terms, image_state.image)))
+    raw_data = float(sum(term.value(frame) for term, frame in zip(data_terms, image_state.image)))
+    data = float(params.data_weight * raw_data)
     tv = float(params.tv_weight * sequence_tv_value(image_state.image))
     background = as_background_sequence(image_state.background, image_state.image.shape[0])
     background_value = float(0.5 * params.background_weight * np.sum((image_state.image - background) ** 2))
+    if reference_sequence is not None:
+        reference_sequence = np.asarray(reference_sequence, dtype=np.float64)
+        if reference_sequence.shape != image_state.image.shape:
+            raise ValueError("reference_sequence shape must match image sequence")
+        reference_value = float(0.5 * params.reference_weight * np.sum((image_state.image - reference_sequence) ** 2))
+    else:
+        reference_value = 0.0
     residual_mass = float(params.residual_mass_weight * np.sum(image_state.positive + image_state.negative))
     transport = transport_objective(transport_state, params.transport_method, params)
-    total = data + tv + background_value + residual_mass + transport
+    total = data + tv + background_value + reference_value + residual_mass + transport
     return ObjectiveBreakdown(
         total=float(total),
         data=data,
         tv=tv,
         background=background_value,
+        reference=reference_value,
         residual_mass=residual_mass,
         transport=transport,
     )

@@ -28,6 +28,8 @@ class SignedResidualUOTADMM:
             background_weight=params.background_weight,
             residual_mass_weight=params.residual_mass_weight,
             decomposition_penalty=params.decomposition_penalty,
+            data_weight=params.data_weight,
+            reference_weight=params.reference_weight,
             iterations=params.image_inner_iters,
         )
         if params.transport_method == TransportMethod.PAIRWISE_UOT:
@@ -119,7 +121,7 @@ class SignedResidualUOTADMM:
         )
         return type(state.transport_state)(positive=positive, negative=negative)
 
-    def step(self, state: ADMMState, data_terms) -> ADMMState:
+    def step(self, state: ADMMState, data_terms, reference_sequence: np.ndarray | None = None) -> ADMMState:
         """Run one exact outer ADMM iteration."""
 
         previous_image_state = state.image_state
@@ -132,6 +134,7 @@ class SignedResidualUOTADMM:
             state.decomposition_dual,
             pos_targets,
             neg_targets,
+            reference_sequence=reference_sequence,
         )
         decomposition_dual = state.decomposition_dual + self.params.dual_relaxation * image_state.decomposition_residual()
         next_state = ADMMState(
@@ -148,7 +151,13 @@ class SignedResidualUOTADMM:
             next_state.transport_state,
             self.params.transport_method,
         )
-        obj = objective_breakdown(next_state.image_state, next_state.transport_state, data_terms, self.params)
+        obj = objective_breakdown(
+            next_state.image_state,
+            next_state.transport_state,
+            data_terms,
+            self.params,
+            reference_sequence=reference_sequence,
+        )
         status = convergence_status(
             next_state.image_state,
             previous_image_state,
@@ -162,6 +171,7 @@ class SignedResidualUOTADMM:
             data=obj.data,
             tv=obj.tv,
             background=obj.background,
+            reference=obj.reference,
             residual_mass=obj.residual_mass,
             transport=obj.transport,
             decomposition_residual=residuals.decomposition_l2,
@@ -177,13 +187,26 @@ class SignedResidualUOTADMM:
         next_state.history.append(history)
         return next_state
 
-    def run(self, static_sequence: np.ndarray, background: np.ndarray, data_terms, callback=None) -> ADMMState:
+    def run(
+        self,
+        static_sequence: np.ndarray,
+        background: np.ndarray,
+        data_terms,
+        callback=None,
+        reference_sequence: np.ndarray | None = None,
+    ) -> ADMMState:
         """Run ADMM until convergence or the configured iteration limit."""
 
+        if reference_sequence is not None:
+            reference_sequence = np.asarray(reference_sequence, dtype=np.float64)
+            if reference_sequence.shape != np.asarray(static_sequence).shape:
+                raise ValueError("reference_sequence shape must match static_sequence")
+        elif self.params.reference_weight > 0.0:
+            reference_sequence = np.asarray(static_sequence, dtype=np.float64)
         state = self.initialize(static_sequence, background)
         stable_iterations = 0
         for _ in range(self.params.max_admm_iters):
-            state = self.step(state, data_terms)
+            state = self.step(state, data_terms, reference_sequence=reference_sequence)
             latest = state.history[-1]
             if callback is not None:
                 callback(state)

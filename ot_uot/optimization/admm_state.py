@@ -19,6 +19,7 @@ class ADMMHistoryEntry:
     data: float
     tv: float
     background: float
+    reference: float
     residual_mass: float
     transport: float
     decomposition_residual: float

@@ -52,7 +52,7 @@ SCRIPT_DIR = Path(__file__).resolve().parent
 CONFIG = {
     # Folder in the current directory containing results.npz.
     #"results_folder": "OptimalTransportTest/main8_static_init_joint_tv_signed_uot_results",
-    "results_folder": "ot_uot_pairwise_main7_matched",
+    "results_folder": "ot_uot_pairwise_main7_12",
     "results_file": "reconstruction.npz",
     "output_subdir": "evaluation_from_npz",
 

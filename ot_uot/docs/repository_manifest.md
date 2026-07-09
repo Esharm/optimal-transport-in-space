@@ -39,7 +39,7 @@ This manifest classifies each standalone module after Phase 5 verification.
 | `evaluation.metrics` | Lightly modified | Metric summary exercised in pipeline test |
 | `visualization.outputs` | Lightly modified | Frame PNG and comparison strip output tested |
 | `drivers.run_reconstruction` | Lightly modified | Pairwise and global CLI smoke tested |
-| `tests.*` | New support | 18 tests passing |
+| `tests.*` | New support | 20 tests passing |
 
 ## Bugs Corrected During Phase 5
 
@@ -69,3 +69,18 @@ flowchart TD
     Optimization --> Results["io.results"]
     Results --> EvalVis["evaluation and visualization"]
 ```
+
+
+## Phase 6 StarWarps Postprocessing Addition
+
+Added framewise reference-fidelity support for postprocessing strong dynamic
+initializations such as StarWarps. The implementation introduces
+`data_weight` and `reference_weight` in `core.config`, adds the reference term
+to `regularizers.image_residual_update`, `optimization.objective`, and
+`optimization.signed_residual_admm`, and exposes the workflow through
+`drivers.run_reconstruction --reference-postprocess`. Existing reconstruction
+features remain available; when the toggle is not used, defaults match the
+previous joint reconstruction behavior.
+
+Verification status: 20 tests passing, including a CLI smoke test for
+reference-postprocessing.
