@@ -69,9 +69,9 @@ Use `--transport-method global_velocity` to run the global Eulerian method.
 By default, the runner assumes the repository-root layout:
 
 ```text
-blackhole_sim_testing/observations_npz
-static_reconstruction/reconstructed_frames_gray
-blackhole_sim/data/aart_frames
+DEFAULT_OBSERVATIONS = PROJECT_ROOT / "blackhole_sim" / "blackhole_sim_testing" / "observations_fixed_npz"
+DEFAULT_INITIALIZATION = PROJECT_ROOT / "results" / "static_reconstruction_results" / "reconstructed_frames_gray"
+DEFAULT_GROUND_TRUTH = PROJECT_ROOT / "blackhole_sim" / "data" / "aart_frames"
 ```
 
 Override these with `--observations`, `--static`, `--ground-truth`, and
