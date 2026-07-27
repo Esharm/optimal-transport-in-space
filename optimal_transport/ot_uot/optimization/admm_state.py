@@ -18,6 +18,8 @@ class ADMMHistoryEntry:
     objective: float
     data: float
     tv: float
+    hessian: float
+    image_l1: float
     background: float
     reference: float
     residual_mass: float

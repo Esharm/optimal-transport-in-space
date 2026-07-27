@@ -10,7 +10,21 @@ from ot_uot.core.background import BackgroundMode, make_background
 from ot_uot.io.observations import infer_frame_index
 
 
-def _load_image(path: Path, *, normalize_images: bool = True) -> np.ndarray:
+def _resize_image_to_shape(image: np.ndarray, shape: tuple[int, int]) -> np.ndarray:
+    """Resize a 2D image to ``shape`` using bilinear interpolation."""
+
+    image = np.asarray(image, dtype=np.float64)
+    if image.shape == tuple(shape):
+        return image
+    from PIL import Image
+
+    height, width = int(shape[0]), int(shape[1])
+    pil = Image.fromarray(image.astype(np.float32), mode="F")
+    resized = pil.resize((width, height), resample=Image.BILINEAR)
+    return np.asarray(resized, dtype=np.float64)
+
+
+def _load_image(path: Path, *, normalize_images: bool = True, shape: tuple[int, int] | None = None) -> np.ndarray:
     suffix = path.suffix.lower()
     if suffix == ".npy":
         arr = np.load(path)
@@ -29,7 +43,24 @@ def _load_image(path: Path, *, normalize_images: bool = True) -> np.ndarray:
         arr = arr[..., 0]
     if arr.ndim != 2:
         raise ValueError(f"static reconstruction must be a 2D image: {path}")
+    if shape is not None:
+        arr = _resize_image_to_shape(arr, shape)
     return np.maximum(arr, 0.0)
+
+
+def load_static_image(
+    path: Path | str,
+    *,
+    normalize_images: bool = True,
+    shape: tuple[int, int] | None = None,
+) -> np.ndarray:
+    """Load one nonnegative static/template image.
+
+    This is used for template warm starts, e.g. a broad Gaussian/radial blob
+    reused across all frames before the short per-frame L1+TV solves.
+    """
+
+    return _load_image(Path(path), normalize_images=normalize_images, shape=shape)
 
 
 def load_static_sequence(

@@ -6,9 +6,9 @@ from skimage.transform import resize
 
 # Change this after running `find . -name "*.h5"`
 #AART_OUTPUT = Path("../aart/Results/Images_a_0.5_i_30_inoisy.h5")
-AART_OUTPUT = Path("../aart/Results/Images_a_0.5_i_30_my_sgra_inoisylongr.h5")
+AART_OUTPUT = Path("../aart/Results/Images_a_0.5_i_30_inoisy2.h5")
 
-OUT_DIR = Path("../data/aart_frames_long")
+OUT_DIR = Path("../data/aart_frames_test")
 OUT_DIR.mkdir(parents=True, exist_ok=True)
 
 N = 128

@@ -7,6 +7,7 @@ import unittest
 import numpy as np
 
 from ot_uot.core.finite_differences import check_adjoint
+from ot_uot.regularizers.hessian import check_hessian_adjoint, hessian_value
 from ot_uot.core.variables import ImageResidualState, TransportState
 from ot_uot.core.visibility import ComplexVisibilityDataTerm, DirectVisibilityOperator
 
@@ -14,6 +15,12 @@ from ot_uot.core.visibility import ComplexVisibilityDataTerm, DirectVisibilityOp
 class CoreConsistencyTests(unittest.TestCase):
     def test_gradient_divergence_adjoint(self) -> None:
         self.assertLess(abs(check_adjoint((8, 9), seed=5)), 1e-10)
+
+    def test_hessian_adjoint(self) -> None:
+        self.assertLess(abs(check_hessian_adjoint((8, 9), seed=7)), 1e-10)
+
+    def test_constant_image_has_zero_hessian(self) -> None:
+        self.assertAlmostEqual(hessian_value(np.ones((8, 9))), 0.0, places=12)
 
     def test_direct_visibility_adjoint(self) -> None:
         rng = np.random.default_rng(10)

@@ -37,7 +37,9 @@ SOURCE_MODULES = [
     "ot_uot.transport.pairwise",
     "ot_uot.transport.global_velocity",
     "ot_uot.regularizers.tv",
+    "ot_uot.regularizers.hessian",
     "ot_uot.regularizers.image_residual_update",
+    "ot_uot.regularizers.static_l1_tv",
     "ot_uot.optimization.admm_state",
     "ot_uot.optimization.convergence",
     "ot_uot.optimization.objective",
@@ -349,6 +351,7 @@ class TransportWeightSweepCLITests(unittest.TestCase):
                 "--max-frames", "2",
                 "--sweep-transport-weights", "1e-8,1e-6",
                 "--tv-weight", "0.0",
+                "--hessian-weight", "1e-8",
                 "--background-weight", "0.0",
                 "--residual-mass-weight", "0.0",
                 "--transport-inner-iters", "3",
@@ -381,3 +384,166 @@ class TransportWeightSweepCLITests(unittest.TestCase):
         self.assertEqual(_parse_transport_weight_sweep([]), [1e-8, 1e-7, 1e-6, 1e-5, 1e-4, 1e-3])
         self.assertEqual(_parse_transport_weight_sweep(["1e-8,1e-6", "1e-4"]), [1e-8, 1e-6, 1e-4])
         self.assertEqual(_transport_weight_label(1e-8), "transport_weight_1e-08")
+
+
+class L1TVWarmStartCLITests(unittest.TestCase):
+    def test_warm_start_sweep_cli_smoke(self) -> None:
+        from ot_uot.drivers.run_reconstruction import main as driver_main
+
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            obs_dir = tmp_path / "obs"
+            gt_dir = tmp_path / "gt"
+            out_dir = tmp_path / "warm_sweep"
+            obs_dir.mkdir()
+            gt_dir.mkdir()
+            from PIL import Image
+
+            for k in range(2):
+                image = np.zeros((6, 6), dtype=np.float64)
+                image[2, 2 + k] = 1.0
+                Image.fromarray(np.asarray(255 * image, dtype=np.uint8)).save(gt_dir / f"frame_{k:03d}.png")
+                term = make_data_term(image)
+                # Write unnormalized observation arrays compatible with the loader.
+                np.savez(
+                    obs_dir / f"frame_{k:04d}.npz",
+                    u=term.operator.u,
+                    v=term.operator.v,
+                    vis=np.asarray([1.0 + 0.0j, 0.2 + 0.1j, 0.2 - 0.1j]),
+                    sigma=np.ones(3),
+                )
+            rc = driver_main([
+                "--observations", str(obs_dir),
+                "--ground-truth", str(gt_dir),
+                "--output", str(out_dir),
+                "--height", "6",
+                "--width", "6",
+                "--fov-rad", "1.0",
+                "--max-frames", "2",
+                "--warm-start-sweep",
+                "--warm-start-initialization", "black",
+                "--warm-start-sweep-l1-weights", "0,1e-8",
+                "--warm-start-sweep-tv-weights", "0",
+                "--warm-start-sweep-hessian-weights", "0,1e-7",
+                "--warm-start-iters", "2",
+                "--metric-normalization", "minmax",
+                "--quiet",
+            ])
+            self.assertEqual(rc, 0)
+            self.assertTrue((out_dir / "warm_start_sweep_summary.json").exists())
+            summary = json.loads((out_dir / "warm_start_sweep_summary.json").read_text(encoding="utf-8"))
+            self.assertEqual(summary["sweep_parameter"], "warm_start_l1_tv_hessian")
+            self.assertEqual(len(summary["runs"]), 4)
+            self.assertTrue((out_dir / "l1_0_tv_0_hessian_0" / "warm_start.npz").exists())
+            self.assertTrue((out_dir / "l1_0_tv_0_hessian_1e-07" / "warm_start.npz").exists())
+
+    def test_warm_start_sweep_with_template_image(self) -> None:
+        from ot_uot.drivers.run_reconstruction import main as driver_main
+        from PIL import Image
+
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            obs_dir = tmp_path / "obs"
+            gt_dir = tmp_path / "gt"
+            out_dir = tmp_path / "warm_sweep_template"
+            template_path = tmp_path / "template.png"
+            obs_dir.mkdir()
+            gt_dir.mkdir()
+
+            yy, xx = np.mgrid[:6, :6]
+            template = np.exp(-((xx - 2.5) ** 2 + (yy - 2.5) ** 2) / 4.0)
+            template = template / np.max(template)
+            Image.fromarray(np.asarray(255 * template, dtype=np.uint8)).save(template_path)
+
+            for k in range(2):
+                image = np.zeros((6, 6), dtype=np.float64)
+                image[2, 2 + k] = 1.0
+                Image.fromarray(np.asarray(255 * image, dtype=np.uint8)).save(gt_dir / f"frame_{k:03d}.png")
+                np.savez(
+                    obs_dir / f"frame_{k:04d}.npz",
+                    u=np.asarray([0.0, 0.25]),
+                    v=np.asarray([0.0, -0.15]),
+                    vis=np.asarray([1.0 + 0.0j, 0.2 + 0.1j]),
+                    sigma=np.asarray([1.0, 1.0]),
+                )
+
+            rc = driver_main([
+                "--observations", str(obs_dir),
+                "--ground-truth", str(gt_dir),
+                "--output", str(out_dir),
+                "--height", "6",
+                "--width", "6",
+                "--fov-rad", "1.0",
+                "--max-frames", "2",
+                "--warm-start-sweep",
+                "--warm-start-initialization", "image",
+                "--warm-start-initial-image", str(template_path),
+                "--warm-start-sweep-l1-weights", "0",
+                "--warm-start-sweep-tv-weights", "0",
+                "--warm-start-sweep-hessian-weights", "0",
+                "--warm-start-iters", "2",
+                "--metric-normalization", "minmax",
+                "--quiet",
+            ])
+            self.assertEqual(rc, 0)
+            summary = json.loads((out_dir / "warm_start_sweep_summary.json").read_text(encoding="utf-8"))
+            self.assertEqual(summary["runs"][0]["warm_start_initialization"], "image")
+            self.assertEqual(summary["runs"][0]["warm_start_initial_image"], str(template_path))
+
+    def test_joint_cli_with_l1_tv_warm_start(self) -> None:
+        from ot_uot.drivers.run_reconstruction import main as driver_main
+        from PIL import Image
+
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            obs_dir = tmp_path / "obs"
+            gt_dir = tmp_path / "gt"
+            out_dir = tmp_path / "out"
+            obs_dir.mkdir()
+            gt_dir.mkdir()
+            for k in range(2):
+                image = np.zeros((6, 6), dtype=np.float64)
+                image[2, 2 + k] = 1.0
+                Image.fromarray(np.asarray(255 * image, dtype=np.uint8)).save(gt_dir / f"frame_{k:03d}.png")
+                np.savez(
+                    obs_dir / f"frame_{k:04d}.npz",
+                    u=np.asarray([0.0, 0.25]),
+                    v=np.asarray([0.0, -0.15]),
+                    vis=np.asarray([1.0 + 0.0j, 0.2 + 0.1j]),
+                    sigma=np.asarray([1.0, 1.0]),
+                )
+            rc = driver_main([
+                "--observations", str(obs_dir),
+                "--ground-truth", str(gt_dir),
+                "--output", str(out_dir),
+                "--height", "6",
+                "--width", "6",
+                "--fov-rad", "1.0",
+                "--max-frames", "2",
+                "--l1-tv-warm-start",
+                "--warm-start-initialization", "black",
+                "--warm-start-l1-weight", "1e-8",
+                "--warm-start-tv-weight", "1e-7",
+                "--warm-start-hessian-weight", "1e-8",
+                "--warm-start-iters", "2",
+                "--image-l1-weight", "0.0",
+                "--tv-weight", "0.0",
+                "--hessian-weight", "1e-8",
+                "--background-weight", "0.0",
+                "--residual-mass-weight", "0.0",
+                "--transport-weight", "1e-8",
+                "--transport-inner-iters", "2",
+                "--image-inner-iters", "2",
+                "--max-admm-iters", "1",
+                "--min-admm-iters", "1",
+                "--metric-normalization", "minmax",
+                "--quiet",
+            ])
+            self.assertEqual(rc, 0)
+            loaded = load_reconstruction_npz(out_dir / "reconstruction.npz")
+            metadata = loaded["metadata"]
+            self.assertTrue(metadata["extra"]["l1_tv_warm_start"])
+            self.assertIn("warm_start_info", metadata["extra"])
+            self.assertIn("image_l1_weight", metadata["config"])
+            self.assertAlmostEqual(metadata["config"]["hessian_weight"], 1e-8)
+            self.assertAlmostEqual(metadata["extra"]["warm_start_info"]["parameters"]["hessian_weight"], 1e-8)

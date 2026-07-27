@@ -10,6 +10,7 @@ import numpy as np
 from ot_uot.core.background import as_background_sequence
 from ot_uot.core.config import TransportMethod, UOTParameters
 from ot_uot.core.variables import ImageResidualState, TransportState
+from ot_uot.regularizers.hessian import sequence_hessian_value
 from ot_uot.regularizers.tv import sequence_tv_value
 from ot_uot.transport.global_velocity import GlobalTransportState
 from ot_uot.transport.pairwise import PairwiseTransportState
@@ -23,6 +24,8 @@ class ObjectiveBreakdown:
     total: float
     data: float
     tv: float
+    hessian: float
+    image_l1: float
     background: float
     reference: float
     residual_mass: float
@@ -86,6 +89,8 @@ def objective_breakdown(
     raw_data = float(sum(term.value(frame) for term, frame in zip(data_terms, image_state.image)))
     data = float(params.data_weight * raw_data)
     tv = float(params.tv_weight * sequence_tv_value(image_state.image))
+    hessian_term = float(params.hessian_weight * sequence_hessian_value(image_state.image))
+    image_l1 = float(params.image_l1_weight * np.sum(image_state.image))
     background = as_background_sequence(image_state.background, image_state.image.shape[0])
     background_value = float(0.5 * params.background_weight * np.sum((image_state.image - background) ** 2))
     if reference_sequence is not None:
@@ -97,11 +102,13 @@ def objective_breakdown(
         reference_value = 0.0
     residual_mass = float(params.residual_mass_weight * np.sum(image_state.positive + image_state.negative))
     transport = transport_objective(transport_state, params.transport_method, params)
-    total = data + tv + background_value + reference_value + residual_mass + transport
+    total = data + tv + hessian_term + image_l1 + background_value + reference_value + residual_mass + transport
     return ObjectiveBreakdown(
         total=float(total),
         data=data,
         tv=tv,
+        hessian=hessian_term,
+        image_l1=image_l1,
         background=background_value,
         reference=reference_value,
         residual_mass=residual_mass,

@@ -10,6 +10,7 @@ from ot_uot.core.background import as_background_sequence
 from ot_uot.core.finite_differences import divergence, gradient
 from ot_uot.core.projections import prox_l1_nonnegative, project_nonnegative
 from ot_uot.core.variables import ImageResidualState
+from ot_uot.regularizers.hessian import hessian, hessian_adjoint, project_hessian_dual
 from ot_uot.regularizers.tv import project_tv_dual
 
 
@@ -34,17 +35,19 @@ class ImageResidualUpdater:
 
     The update minimizes the exact augmented objective described in the
     mathematical specification. The subproblem is solved by a primal-dual
-    forward-backward scheme: TV is handled through its dual projection, while
-    nonnegativity and the residual mass penalty are handled by proximal maps.
+    forward-backward scheme: TV and Hessian regularization are handled through
+    dual projections, while nonnegativity and the residual mass penalty are handled by proximal maps.
     """
 
     def __init__(
         self,
         tv_weight: float,
+        hessian_weight: float,
         background_weight: float,
         residual_mass_weight: float,
         decomposition_penalty: float,
         iterations: int,
+        image_l1_weight: float = 0.0,
         data_weight: float = 1.0,
         reference_weight: float = 0.0,
         tau_cap: float = 10.0,
@@ -53,7 +56,9 @@ class ImageResidualUpdater:
     ):
         self.data_weight = float(data_weight)
         self.tv_weight = float(tv_weight)
+        self.hessian_weight = float(hessian_weight)
         self.background_weight = float(background_weight)
+        self.image_l1_weight = float(image_l1_weight)
         self.reference_weight = float(reference_weight)
         self.residual_mass_weight = float(residual_mass_weight)
         self.decomposition_penalty = float(decomposition_penalty)
@@ -93,8 +98,13 @@ class ImageResidualUpdater:
         )
         # Conservative coupled-variable smooth bound for (u,p,n).
         smooth_lip = data_lip + self.background_weight + self.reference_weight + 6.0 * self.decomposition_penalty + endpoint_lip
+        dual_operator_bound = 0.0
         if self.tv_weight > 0.0:
-            safe = 0.99 / (0.5 * smooth_lip + 8.0 * self.dual_sigma)
+            dual_operator_bound += 8.0
+        if self.hessian_weight > 0.0:
+            dual_operator_bound += 64.0
+        if dual_operator_bound > 0.0:
+            safe = 0.99 / (0.5 * smooth_lip + dual_operator_bound * self.dual_sigma)
         else:
             safe = 0.99 / smooth_lip
         return float(min(self.tau_cap, safe))
@@ -134,6 +144,7 @@ class ImageResidualUpdater:
 
         tau = self._step_size(data_terms, u.shape[1:], positive_targets, negative_targets)
         q = np.zeros((u.shape[0], 2, *u.shape[1:]), dtype=np.float64)
+        r = np.zeros((u.shape[0], 2, 2, *u.shape[1:]), dtype=np.float64)
         u_bar = u.copy()
         old_all = np.concatenate([u.ravel(), p.ravel(), n.ravel()])
 
@@ -141,6 +152,12 @@ class ImageResidualUpdater:
             if self.tv_weight > 0.0:
                 for k in range(u.shape[0]):
                     q[k] = project_tv_dual(q[k] + self.dual_sigma * gradient(u_bar[k]), self.tv_weight)
+            if self.hessian_weight > 0.0:
+                for k in range(u.shape[0]):
+                    r[k] = project_hessian_dual(
+                        r[k] + self.dual_sigma * hessian(u_bar[k]),
+                        self.hessian_weight,
+                    )
 
             old_u = u.copy()
             constraint = u - background - p + n + decomposition_dual
@@ -156,6 +173,9 @@ class ImageResidualUpdater:
             if self.tv_weight > 0.0:
                 for k in range(u.shape[0]):
                     grad_u[k] -= divergence(q[k])
+            if self.hessian_weight > 0.0:
+                for k in range(u.shape[0]):
+                    grad_u[k] += hessian_adjoint(r[k])
 
             grad_p = -self.decomposition_penalty * constraint
             grad_p += pos_weight_sum * p - pos_target_sum
@@ -163,7 +183,7 @@ class ImageResidualUpdater:
             grad_n = self.decomposition_penalty * constraint
             grad_n += neg_weight_sum * n - neg_target_sum
 
-            u = project_nonnegative(u - tau * grad_u)
+            u = prox_l1_nonnegative(u - tau * grad_u, tau * self.image_l1_weight)
             p = prox_l1_nonnegative(p - tau * grad_p, tau * self.residual_mass_weight)
             n = prox_l1_nonnegative(n - tau * grad_n, tau * self.residual_mass_weight)
             u_bar = 2.0 * u - old_u

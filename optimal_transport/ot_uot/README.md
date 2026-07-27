@@ -256,3 +256,43 @@ comparison files are written to:
 <output>/sweep_summary.json
 <output>/sweep_summary.csv
 ```
+
+## L1 + TV + Hessian warm-start sweep
+
+The per-frame spatial warm start supports three convex spatial penalties:
+
+```text
+L1(u) + TV(u) + Hessian-Frobenius(u)
+```
+
+The Hessian term is the sum of pointwise Frobenius norms of the discrete
+second-derivative matrix. It favors locally affine structure and can reduce the
+staircasing associated with first-order TV. The existing `--l1-tv-warm-start`
+flag remains backward compatible; Hessian regularization is enabled by setting
+`--warm-start-hessian-weight`.
+
+A three-parameter sweep is available through `--warm-start-sweep`. The default
+values for each of L1, TV, and Hessian are `0,1e-7,1e-5,1e-3`, producing 64
+runs. Example on the first five frames:
+
+```bash
+python -m ot_uot \
+  --warm-start-sweep \
+  --output optimal_transport/ot_uot_warmstart_l1_tv_hessian_sweep_5frame \
+  --max-frames 5 \
+  --warm-start-initialization image \
+  --warm-start-initial-image results/radial_outputs/time_avg_static_recon_128pix_radial_round.png \
+  --warm-start-initial-scale-mode per_frame \
+  --warm-start-sweep-l1-weights 0,1e-7,1e-5,1e-3 \
+  --warm-start-sweep-tv-weights 0,1e-7,1e-5,1e-3 \
+  --warm-start-sweep-hessian-weights 0,1e-7,1e-5,1e-3 \
+  --warm-start-iters 200 \
+  --metric-normalization minmax \
+  --stge-lambda auto \
+  --save-pngs
+```
+
+The aggregate JSON/CSV includes the three weights, NRMSE, SSIM, STGE, Fourier
+chi-squared, and final data/L1/TV/Hessian objective components. Hessian
+regularization is also available in the joint ADMM image step through
+`--hessian-weight`.

@@ -1,0 +1,118 @@
+{
+  "mode": "l1_tv_hessian_warm_start_sweep",
+  "warm_start_info": {
+    "source": "l1_tv_hessian_warm_start_from_image",
+    "initialization": {
+      "warm_start_initialization": "image",
+      "warm_start_initial_image": "/home/ethanks/projects/optimal-transport-in-space/results/radial_outputs/time_avg_static_recon_128pix_radial_round.png",
+      "warm_start_initial_scale_mode": "per_frame",
+      "warm_start_initial_scale_info": {
+        "static_recon_scale_mode": "per_frame",
+        "static_recon_scale_min": 0.0014045327641087097,
+        "static_recon_scale_max": 0.0014954002858060254,
+        "static_recon_scale_mean": 0.0014515584620603224,
+        "static_recon_scale_std": 3.441888902105058e-05,
+        "static_recon_scale_numerator_sum": 0.024166815421293883,
+        "static_recon_scale_denominator_sum": 16.64884989779933
+      },
+      "warm_start_initial_min": 0.0,
+      "warm_start_initial_max": 0.0008737829120984228,
+      "warm_start_initial_mean": 0.0001346396631461264,
+      "warm_start_initial_total_flux_mean": 2.205936240986135
+    },
+    "parameters": {
+      "l1_weight": 1e-07,
+      "tv_weight": 1e-10,
+      "hessian_weight": 0.0,
+      "data_weight": 1.0,
+      "iterations": 200,
+      "tau_cap": 10.0,
+      "dual_sigma": 0.25
+    },
+    "final_mean_objective": 8.506135687081181e-07,
+    "final_mean_data": 6.004054081005405e-07,
+    "final_mean_l1": 2.501791216480636e-07,
+    "final_mean_tv": 2.9038959514033185e-11,
+    "final_mean_hessian": 0.0,
+    "final_mean_relative_change": 0.0007715297193653365,
+    "final_mean_step_size": 0.49124118461278854
+  },
+  "image_metrics": {
+    "normalization": "minmax",
+    "total_flux": 1.0,
+    "frames": 5,
+    "mean_frame_nrmse": 1.4181566611103997,
+    "mean_ssim": 0.4202882243806568,
+    "frame_nrmse": [
+      1.1198625305276833,
+      1.4213594955412319,
+      1.5803084494769013,
+      1.504952907539334,
+      1.464299922466848
+    ],
+    "frame_ssim": [
+      0.43906432231674647,
+      0.40896156535644357,
+      0.40568363212942893,
+      0.41499428725297477,
+      0.4327373148476903
+    ],
+    "sequence_nrmse": 1.39673371134108,
+    "stge": 1.1522719843743356,
+    "stge_spatial": 1.2527706682732027,
+    "stge_temporal": 1.042126242190576,
+    "stge_lambda": 0.6313000100555771,
+    "stge_lambda_mode": "auto",
+    "stge_spatial_reference_norm": 7.6222094265983635,
+    "stge_temporal_reference_norm": 12.073830675097462,
+    "frame_spatial_gradient_nrmse": [
+      1.174301718189645,
+      1.2632977478760512,
+      1.3525250158022988,
+      1.2863737241194353,
+      1.2344475433089148
+    ],
+    "interval_temporal_gradient_nrmse": [
+      1.046865467827266,
+      1.1248482870477252,
+      1.0235578164329662,
+      0.98764472535995
+    ]
+  },
+  "fourier_metrics": {
+    "fourier_chi2": 6.004054081005405e-06,
+    "fourier_reduced_chi2": 1.2606143615111711e-10,
+    "fourier_complex_reduced_chi2": 2.5212287230223423e-10,
+    "fourier_data_term_value": 3.0020270405027027e-06,
+    "fourier_visibility_count": 23814,
+    "fourier_degrees_of_freedom": 47628,
+    "frame_fourier_chi2": [
+      1.2041497462681254e-06,
+      1.3706712291373205e-06,
+      1.3352620164709181e-06,
+      1.192067485070273e-06,
+      9.019036040587683e-07
+    ],
+    "frame_fourier_reduced_chi2": [
+      1.2252235920514095e-10,
+      1.5108809844988101e-10,
+      1.3586304603896196e-10,
+      1.3140073689046217e-10,
+      9.176878348176314e-11
+    ],
+    "frame_fourier_complex_reduced_chi2": [
+      2.450447184102819e-10,
+      3.0217619689976203e-10,
+      2.717260920779239e-10,
+      2.6280147378092434e-10,
+      1.835375669635263e-10
+    ],
+    "frame_visibility_count": [
+      4914,
+      4536,
+      4914,
+      4536,
+      4914
+    ]
+  }
+}

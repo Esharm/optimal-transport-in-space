@@ -1,0 +1,96 @@
+{
+  "mode": "l1_tv_warm_start_sweep",
+  "warm_start_info": {
+    "source": "l1_tv_warm_start_from_black",
+    "parameters": {
+      "l1_weight": 1e-09,
+      "tv_weight": 1e-08,
+      "data_weight": 1.0,
+      "iterations": 30,
+      "tau_cap": 10.0,
+      "dual_sigma": 0.25
+    },
+    "final_mean_objective": 3.7251905564764225e-06,
+    "final_mean_data": 3.724212139149876e-06,
+    "final_mean_l1": 5.675530550159854e-10,
+    "final_mean_tv": 4.1086427153125805e-10
+  },
+  "image_metrics": {
+    "normalization": "minmax",
+    "total_flux": 1.0,
+    "frames": 5,
+    "mean_frame_nrmse": 2.8118954956182494,
+    "mean_ssim": 0.04529570856608009,
+    "frame_nrmse": [
+      2.3404262941583025,
+      2.8247063872739258,
+      3.120668491897139,
+      2.922233433138479,
+      2.851442871623401
+    ],
+    "frame_ssim": [
+      0.03721968868384288,
+      0.03625377797044377,
+      0.04204135170098523,
+      0.05429695805124044,
+      0.05666676642388812
+    ],
+    "sequence_nrmse": 2.7735450648690776,
+    "stge": 1.7692084903110834,
+    "stge_spatial": 1.4450021319203803,
+    "stge_temporal": 2.042588113919006,
+    "stge_lambda": 0.6313000100555771,
+    "stge_lambda_mode": "auto",
+    "stge_spatial_reference_norm": 7.6222094265983635,
+    "stge_temporal_reference_norm": 12.073830675097462,
+    "frame_spatial_gradient_nrmse": [
+      1.3687052704372298,
+      1.4425513450075909,
+      1.5876193249156199,
+      1.5007894282720964,
+      1.3883795079788346
+    ],
+    "interval_temporal_gradient_nrmse": [
+      1.9295141380821463,
+      2.608096110407688,
+      2.068275868358503,
+      1.6159413809082352
+    ]
+  },
+  "fourier_metrics": {
+    "fourier_chi2": 3.724212139149876e-05,
+    "fourier_reduced_chi2": 7.819375449630209e-10,
+    "fourier_complex_reduced_chi2": 1.5638750899260418e-09,
+    "fourier_data_term_value": 1.862106069574938e-05,
+    "fourier_visibility_count": 23814,
+    "fourier_degrees_of_freedom": 47628,
+    "frame_fourier_chi2": [
+      7.3545499553878e-06,
+      7.59295772831509e-06,
+      7.633725090177341e-06,
+      7.545347520368878e-06,
+      7.115541097249647e-06
+    ],
+    "frame_fourier_reduced_chi2": [
+      7.48326206286915e-10,
+      8.369662398936387e-10,
+      7.767323046578491e-10,
+      8.317182010988622e-10,
+      7.240070306521823e-10
+    ],
+    "frame_fourier_complex_reduced_chi2": [
+      1.49665241257383e-09,
+      1.6739324797872774e-09,
+      1.5534646093156983e-09,
+      1.6634364021977245e-09,
+      1.4480140613043645e-09
+    ],
+    "frame_visibility_count": [
+      4914,
+      4536,
+      4914,
+      4536,
+      4914
+    ]
+  }
+}

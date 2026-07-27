@@ -25,8 +25,10 @@ class SignedResidualUOTADMM:
         self.params = params
         self.image_updater = ImageResidualUpdater(
             tv_weight=params.tv_weight,
+            hessian_weight=params.hessian_weight,
             background_weight=params.background_weight,
             residual_mass_weight=params.residual_mass_weight,
+            image_l1_weight=params.image_l1_weight,
             decomposition_penalty=params.decomposition_penalty,
             data_weight=params.data_weight,
             reference_weight=params.reference_weight,
@@ -170,6 +172,8 @@ class SignedResidualUOTADMM:
             objective=obj.total,
             data=obj.data,
             tv=obj.tv,
+            hessian=obj.hessian,
+            image_l1=obj.image_l1,
             background=obj.background,
             reference=obj.reference,
             residual_mass=obj.residual_mass,

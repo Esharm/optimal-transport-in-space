@@ -68,6 +68,7 @@ The per-frame image objective is
 \[
 \sum_k D_k(u_k)
 +\alpha\sum_k \mathrm{TV}(u_k)
++\eta_H\sum_k \mathrm{HTV}_2(u_k)
 +\frac{\mu}{2}\sum_k\|u_k-a_k\|_2^2.
 \]
 
@@ -75,6 +76,15 @@ The implementation uses isotropic finite-difference TV:
 
 \[
 \mathrm{TV}(u)=\sum_x \sqrt{(\nabla_x u)^2+(\nabla_y u)^2}.
+
+The optional second-order regularizer is the pointwise Frobenius/Schatten-2
+seminorm of the discrete Hessian:
+
+\[
+\mathrm{HTV}_2(u)=\sum_x \|H u(x)\|_F.
+\]
+
+It favors locally affine image structure and reduces first-order TV staircasing.
 \]
 
 ## 4. Unbalanced Transport Action
@@ -182,6 +192,7 @@ The shared variational problem is
 \min_{u,p,n,\rho,m,s}\quad
 &\sum_k D_k(u_k)
 +\alpha\sum_k \mathrm{TV}(u_k)
++\eta_H\sum_k \mathrm{HTV}_2(u_k)
 +\frac{\mu}{2}\sum_k\|u_k-a_k\|_2^2\\
 &+\lambda_r\sum_k\langle 1,p_k+n_k\rangle
 +\beta\,\mathcal{T}(p,n;\rho,m,s)
@@ -304,6 +315,7 @@ until residual tolerances are satisfied for patience iterations
 | Pairwise transport update | `transport.pairwise` | `PairwiseUOTTransport` |
 | Global transport update | `transport.global_velocity` | `GlobalVelocityUOTTransport` |
 | TV value/projection | `regularizers.tv` | `tv_value`, `project_tv_dual` |
+| Hessian value/projection | `regularizers.hessian` | `hessian_value`, `project_hessian_dual` |
 | Exact image/residual update | `regularizers.image_residual_update` | `ImageResidualUpdater` |
 | Objective diagnostics | `optimization.objective` | `objective_breakdown` |
 | ADMM state | `optimization.admm_state` | `ADMMState` |

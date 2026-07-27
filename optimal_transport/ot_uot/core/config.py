@@ -38,6 +38,8 @@ class UOTParameters:
     transport_method: TransportMethod = TransportMethod.PAIRWISE_UOT
     data_weight: float = 1.0
     tv_weight: float = 1e-5
+    hessian_weight: float = 0.0
+    image_l1_weight: float = 0.0
     background_weight: float = 1e-4
     reference_weight: float = 0.0
     residual_mass_weight: float = 1e-6
@@ -64,6 +66,8 @@ class UOTParameters:
         nonnegative = {
             "data_weight": self.data_weight,
             "tv_weight": self.tv_weight,
+            "hessian_weight": self.hessian_weight,
+            "image_l1_weight": self.image_l1_weight,
             "background_weight": self.background_weight,
             "reference_weight": self.reference_weight,
             "residual_mass_weight": self.residual_mass_weight,

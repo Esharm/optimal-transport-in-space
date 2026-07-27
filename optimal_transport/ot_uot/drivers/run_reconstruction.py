@@ -11,24 +11,46 @@ import numpy as np
 
 from ot_uot.core.background import BackgroundMode, make_background
 from ot_uot.core.config import ImageGrid, ReconstructionPaths, TransportMethod, UOTParameters
-from ot_uot.evaluation.metrics import compare_initialization_and_final_fourier_reports, compare_initialization_and_final_reports
+from ot_uot.evaluation.metrics import (
+    compare_initialization_and_final_fourier_reports,
+    compare_initialization_and_final_reports,
+    fourier_chi2_report,
+    reconstruction_metric_report,
+)
 from ot_uot.io.ground_truth import load_ground_truth_sequence
 from ot_uot.io.observations import load_observation_directory
 from ot_uot.io.config_io import save_experiment_config
 from ot_uot.io.results import save_reconstruction_npz
-from ot_uot.io.static_init import calibrate_static_sequence, load_static_sequence
+from ot_uot.io.static_init import calibrate_static_sequence, load_static_image, load_static_sequence
 from ot_uot.optimization.signed_residual_admm import SignedResidualUOTADMM
+from ot_uot.regularizers.static_l1_tv import StaticL1TVParameters, run_static_l1_tv_warm_start
 from ot_uot.visualization.outputs import save_frame_pngs
 
 
-PROJECT_ROOT = Path(__file__).resolve().parents[2]
-DEFAULT_OBSERVATIONS = PROJECT_ROOT / "blackhole_sim_testing" / "observations_fixed_npz"
-DEFAULT_INITIALIZATION = PROJECT_ROOT / "static_reconstruction" / "static_128_real"
+def _infer_project_root() -> Path:
+    """Infer the repository root for both old and new project layouts."""
+
+    path = Path(__file__).resolve()
+    parents = path.parents
+    # New layout: ROOT/optimal_transport/ot_uot/drivers/run_reconstruction.py
+    if len(parents) > 3 and parents[2].name == "optimal_transport":
+        return parents[3]
+    # Standalone/package layout used by tests and archived zips:
+    return parents[2]
+
+
+PROJECT_ROOT = _infer_project_root()
+DEFAULT_OBSERVATIONS = PROJECT_ROOT / "blackhole_sim" / "blackhole_sim_testing" / "observations_fixed_npz"
+DEFAULT_INITIALIZATION = PROJECT_ROOT / "results" / "static_reconstruction_results" / "static_128_real"
 DEFAULT_GROUND_TRUTH = PROJECT_ROOT / "blackhole_sim" / "data" / "aart_frames"
-DEFAULT_OUTPUT = PROJECT_ROOT / "ot_uot_results"
+DEFAULT_OUTPUT = PROJECT_ROOT / "optimal_transport" / "ot_uot_results"
+DEFAULT_WARM_START_INITIAL_IMAGE = PROJECT_ROOT / "results" / "radial_outputs" / "time_avg_static_recon_128pix_radial_round.png"
 SCALE_CHOICES = ["none", "per_frame", "global"]
 METRIC_NORMALIZATION_CHOICES = ["flux", "minmax", "zscore", "none"]
 DEFAULT_TRANSPORT_WEIGHT_SWEEP = [1e-8, 1e-7, 1e-6, 1e-5, 1e-4, 1e-3]
+DEFAULT_WARM_START_L1_SWEEP = [0.0, 1e-7, 1e-5, 1e-3]
+DEFAULT_WARM_START_TV_SWEEP = [0.0, 1e-7, 1e-5, 1e-3]
+DEFAULT_WARM_START_HESSIAN_SWEEP = [0.0, 1e-7, 1e-5, 1e-3]
 
 
 def _resolve_weight(value: float | None, *, normal: float, postprocess: float, enabled: bool) -> float:
@@ -74,6 +96,76 @@ def _transport_weight_label(weight: float) -> str:
     return f"transport_weight_{label}"
 
 
+def _parse_float_list(raw: str | None, default: list[float], *, allow_zero: bool = True) -> list[float]:
+    """Parse a comma/space-separated list of floating-point weights."""
+
+    if raw is None or not str(raw).strip():
+        return list(default)
+    tokens = [part for part in str(raw).replace(",", " ").split() if part]
+    values: list[float] = []
+    for token in tokens:
+        try:
+            value = float(token)
+        except ValueError as exc:
+            raise ValueError(f"invalid float value: {token!r}") from exc
+        if allow_zero:
+            if value < 0.0:
+                raise ValueError("weights must be nonnegative")
+        elif value <= 0.0:
+            raise ValueError("weights must be positive")
+        values.append(value)
+    if not values:
+        return list(default)
+    return values
+
+
+def _weight_label(prefix: str, weight: float) -> str:
+    """Return a compact filesystem label for a floating-point weight."""
+
+    if float(weight) == 0.0:
+        return f"{prefix}_0"
+    return f"{prefix}_{float(weight):.0e}".replace("+", "")
+
+
+def _write_warm_start_sweep_outputs(output_dir: Path, rows: list[dict[str, object]]) -> tuple[Path, Path]:
+    """Persist aggregate L1+TV+Hessian warm-start sweep results."""
+
+    output_dir.mkdir(parents=True, exist_ok=True)
+    json_path = output_dir / "warm_start_sweep_summary.json"
+    csv_path = output_dir / "warm_start_sweep_summary.csv"
+    json_path.write_text(json.dumps({"sweep_parameter": "warm_start_l1_tv_hessian", "runs": rows}, indent=2), encoding="utf-8")
+
+    fieldnames = [
+        "sweep_index",
+        "warm_start_l1_weight",
+        "warm_start_tv_weight",
+        "warm_start_hessian_weight",
+        "warm_start_initialization",
+        "warm_start_initial_image",
+        "warm_start_initial_scale_mode",
+        "output_dir",
+        "warm_start_mean_frame_nrmse",
+        "warm_start_mean_ssim",
+        "warm_start_stge",
+        "warm_start_stge_temporal",
+        "warm_start_fourier_reduced_chi2",
+        "warm_start_fourier_chi2",
+        "warm_start_final_objective",
+        "warm_start_final_data",
+        "warm_start_final_l1",
+        "warm_start_final_tv",
+        "warm_start_final_hessian",
+        "warm_start_final_relative_change",
+        "warm_start_final_step_size",
+    ]
+    with csv_path.open("w", newline="", encoding="utf-8") as handle:
+        writer = csv.DictWriter(handle, fieldnames=fieldnames)
+        writer.writeheader()
+        for row in rows:
+            writer.writerow({name: row.get(name, "") for name in fieldnames})
+    return json_path, csv_path
+
+
 def _get_nested_scalar(data: dict | None, *keys: str) -> float | None:
     """Safely fetch a nested numeric metric for sweep summaries."""
 
@@ -111,6 +203,8 @@ def _write_sweep_outputs(output_dir: Path, rows: list[dict[str, object]]) -> tup
         "data",
         "reference",
         "tv",
+        "hessian",
+        "image_l1",
         "transport",
         "initialization_mean_frame_nrmse",
         "post_uot_mean_frame_nrmse",
@@ -266,10 +360,30 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--no-normalize-background-images", action="store_true")
     parser.add_argument("--no-normalize-reference-images", action="store_true")
 
-    parser.add_argument("--reference-postprocess", action="store_true", help="Use framewise reference fidelity plus signed-residual UOT, with data/TV/background-prior/residual-mass defaults disabled.")
+    parser.add_argument("--reference-postprocess", action="store_true", help="Use framewise reference fidelity plus signed-residual UOT, with data/TV/Hessian/background-prior/residual-mass defaults disabled.")
+
+    parser.add_argument("--l1-tv-warm-start", action="store_true", help="Before joint ADMM, run short independent per-frame data+L1+TV+Hessian reconstructions from the chosen warm-start initialization.")
+    parser.add_argument("--warm-start-sweep", action="store_true", help="Run a warm-start-only L1+TV+Hessian parameter sweep and exit before UOT/ADMM.")
+    parser.add_argument("--warm-start-sweep-l1-weights", default=",".join(f"{w:g}" for w in DEFAULT_WARM_START_L1_SWEEP), help="Comma/space-separated L1 weights for --warm-start-sweep.")
+    parser.add_argument("--warm-start-sweep-tv-weights", default=",".join(f"{w:g}" for w in DEFAULT_WARM_START_TV_SWEEP), help="Comma/space-separated TV weights for --warm-start-sweep.")
+    parser.add_argument("--warm-start-sweep-hessian-weights", default=",".join(f"{w:g}" for w in DEFAULT_WARM_START_HESSIAN_SWEEP), help="Comma/space-separated Hessian weights for --warm-start-sweep.")
+    parser.add_argument("--warm-start-l1-weight", type=float, default=1e-8, help="Image L1 weight used by --l1-tv-warm-start.")
+    parser.add_argument("--warm-start-tv-weight", type=float, default=1e-7, help="TV weight used by --l1-tv-warm-start.")
+    parser.add_argument("--warm-start-hessian-weight", type=float, default=0.0, help="Second-order Hessian-Frobenius weight used by --l1-tv-warm-start.")
+    parser.add_argument("--warm-start-data-weight", type=float, default=1.0, help="Visibility data weight used by the L1+TV+Hessian warm-start solve.")
+    parser.add_argument("--warm-start-iters", type=int, default=200, help="Per-frame L1+TV+Hessian warm-start iterations; intentionally less than full static convergence.")
+    parser.add_argument("--warm-start-tau-cap", type=float, default=10.0)
+    parser.add_argument("--warm-start-dual-sigma", type=float, default=0.25)
+    parser.add_argument("--warm-start-initialization", choices=["image", "black"], default="image", help="Initialization used before the L1+TV+Hessian warm-start solve. Default uses --warm-start-initial-image; 'black' restores the old zero initialization.")
+    parser.add_argument("--warm-start-initial-image", type=Path, default=DEFAULT_WARM_START_INITIAL_IMAGE, help="Single broad/radial/Gaussian-like template image used when --warm-start-initialization=image.")
+    parser.add_argument("--warm-start-initial-scale-mode", choices=SCALE_CHOICES, default="per_frame", help="Scalar visibility calibration applied to the warm-start template image before per-frame spatial solves.")
+    parser.add_argument("--no-normalize-warm-start-initial-image", action="store_true", help="Disable PNG display normalization for --warm-start-initial-image.")
+
     parser.add_argument("--data-weight", type=float, default=None)
     parser.add_argument("--reference-weight", type=float, default=None)
     parser.add_argument("--tv-weight", type=float, default=None)
+    parser.add_argument("--hessian-weight", type=float, default=None, help="Second-order Hessian-Frobenius spatial regularization weight inside joint ADMM.")
+    parser.add_argument("--image-l1-weight", type=float, default=None, help="Optional nonnegative image L1 penalty inside the joint ADMM image update.")
     parser.add_argument("--background-weight", type=float, default=None)
     parser.add_argument("--residual-mass-weight", type=float, default=None)
     parser.add_argument("--transport-weight", type=float, default=None)
@@ -315,9 +429,229 @@ def main(argv: list[str] | None = None) -> int:
     data_terms = [obs.data_term for obs in observations]
     frame_indices = [obs.frame_index for obs in observations]
 
+    ground_truth, ground_truth_paths = load_ground_truth_sequence(
+        args.ground_truth,
+        frame_indices,
+        shape=grid.shape,
+    )
+
+    def make_warm_start_params(l1_weight: float, tv_weight: float, hessian_weight: float = 0.0) -> StaticL1TVParameters:
+        return StaticL1TVParameters(
+            l1_weight=float(l1_weight),
+            tv_weight=float(tv_weight),
+            hessian_weight=float(hessian_weight),
+            data_weight=float(args.warm_start_data_weight),
+            iterations=int(args.warm_start_iters),
+            tau_cap=float(args.warm_start_tau_cap),
+            dual_sigma=float(args.warm_start_dual_sigma),
+        )
+
+    def load_warm_start_initial_sequence() -> tuple[np.ndarray | None, dict[str, object]]:
+        """Return the image used to initialize the short L1+TV warm-start solves.
+
+        ``None`` means black initialization.  An image template is replicated
+        over frames and optionally calibrated with the same scalar visibility
+        scaling used for static/StarWarps frame inputs.
+        """
+
+        if args.warm_start_initialization == "black":
+            return None, {
+                "warm_start_initialization": "black",
+                "warm_start_initial_image": None,
+                "warm_start_initial_scale_mode": "none",
+            }
+
+        image_path = Path(args.warm_start_initial_image)
+        if not image_path.exists():
+            raise FileNotFoundError(
+                "warm-start initial image was requested but not found: "
+                f"{image_path}. Pass --warm-start-initialization black to restore the old zero start, "
+                "or pass --warm-start-initial-image to a valid template."
+            )
+        template = load_static_image(
+            image_path,
+            normalize_images=not args.no_normalize_warm_start_initial_image,
+            shape=grid.shape,
+        )
+        sequence = np.repeat(template[None, :, :], len(data_terms), axis=0)
+        sequence, scale_info = calibrate_static_sequence(
+            sequence,
+            data_terms,
+            mode=args.warm_start_initial_scale_mode,
+        )
+        return sequence, {
+            "warm_start_initialization": "image",
+            "warm_start_initial_image": str(image_path),
+            "warm_start_initial_scale_mode": args.warm_start_initial_scale_mode,
+            "warm_start_initial_scale_info": scale_info,
+            "warm_start_initial_min": float(np.min(sequence)),
+            "warm_start_initial_max": float(np.max(sequence)),
+            "warm_start_initial_mean": float(np.mean(sequence)),
+            "warm_start_initial_total_flux_mean": float(np.mean(np.sum(sequence, axis=(1, 2)))),
+        }
+
+    def compute_l1_tv_warm_start(params: StaticL1TVParameters, *, progress_prefix: str = "") -> tuple[np.ndarray, list, dict[str, object]]:
+        if not args.quiet:
+            print(
+                progress_prefix
+                + "Starting L1+TV+Hessian static warm start | "
+                f"frames={len(data_terms)} | iters/frame={params.iterations} | "
+                f"init={args.warm_start_initialization} | "
+                f"l1={params.l1_weight:g} | tv={params.tv_weight:g} | hessian={params.hessian_weight:g} | data={params.data_weight:g}",
+                flush=True,
+            )
+
+        def warm_callback(entry):
+            if args.quiet:
+                return
+            # Print only final frame iterations and coarse checkpoints to avoid noisy logs.
+            if entry.iteration == params.iterations or entry.iteration == 1 or entry.iteration % max(params.iterations // 4, 1) == 0:
+                print(
+                    progress_prefix
+                    + f"warm frame={entry.frame:03d} iter={entry.iteration:03d}/{params.iterations:03d} | "
+                    f"obj={entry.objective:.6e} | data={entry.data:.3e} | "
+                    f"l1={entry.l1:.3e} | tv={entry.tv:.3e} | hessian={entry.hessian:.3e} | rel={entry.relative_change:.3e}",
+                    flush=True,
+                )
+
+        initial_sequence, initial_info = load_warm_start_initial_sequence()
+        sequence, history = run_static_l1_tv_warm_start(
+            data_terms,
+            grid.shape,
+            params,
+            initial_sequence=initial_sequence,
+            callback=warm_callback if not args.quiet else None,
+        )
+        final_by_frame: dict[int, object] = {}
+        for entry in history:
+            final_by_frame[int(entry.frame)] = entry
+        if final_by_frame:
+            final_objective = float(np.mean([entry.objective for entry in final_by_frame.values()]))
+            final_data = float(np.mean([entry.data for entry in final_by_frame.values()]))
+            final_l1 = float(np.mean([entry.l1 for entry in final_by_frame.values()]))
+            final_tv = float(np.mean([entry.tv for entry in final_by_frame.values()]))
+            final_hessian = float(np.mean([entry.hessian for entry in final_by_frame.values()]))
+            final_relative_change = float(np.mean([entry.relative_change for entry in final_by_frame.values()]))
+            final_step_size = float(np.mean([entry.step_size for entry in final_by_frame.values()]))
+        else:
+            final_objective = final_data = final_l1 = final_tv = final_hessian = float("nan")
+            final_relative_change = final_step_size = float("nan")
+        source_name = "l1_tv_hessian_warm_start_from_black" if initial_info["warm_start_initialization"] == "black" else "l1_tv_hessian_warm_start_from_image"
+        info: dict[str, object] = {
+            "source": source_name,
+            "initialization": initial_info,
+            "parameters": {
+                "l1_weight": float(params.l1_weight),
+                "tv_weight": float(params.tv_weight),
+                "hessian_weight": float(params.hessian_weight),
+                "data_weight": float(params.data_weight),
+                "iterations": int(params.iterations),
+                "tau_cap": float(params.tau_cap),
+                "dual_sigma": float(params.dual_sigma),
+            },
+            "final_mean_objective": final_objective,
+            "final_mean_data": final_data,
+            "final_mean_l1": final_l1,
+            "final_mean_tv": final_tv,
+            "final_mean_hessian": final_hessian,
+            "final_mean_relative_change": final_relative_change,
+            "final_mean_step_size": final_step_size,
+        }
+        return sequence, history, info
+
+    if args.warm_start_sweep:
+        l1_values = _parse_float_list(args.warm_start_sweep_l1_weights, DEFAULT_WARM_START_L1_SWEEP, allow_zero=True)
+        tv_values = _parse_float_list(args.warm_start_sweep_tv_weights, DEFAULT_WARM_START_TV_SWEEP, allow_zero=True)
+        hessian_values = _parse_float_list(args.warm_start_sweep_hessian_weights, DEFAULT_WARM_START_HESSIAN_SWEEP, allow_zero=True)
+        args.output.mkdir(parents=True, exist_ok=True)
+        rows: list[dict[str, object]] = []
+        total = len(l1_values) * len(tv_values) * len(hessian_values)
+        if not args.quiet:
+            print(
+                "Starting L1+TV+Hessian warm-start parameter sweep | "
+                f"l1_values={l1_values} | tv_values={tv_values} | hessian_values={hessian_values} | "
+                f"frames={len(observations)} | output={args.output}",
+                flush=True,
+            )
+        sweep_index = 0
+        for l1_weight in l1_values:
+            for tv_weight_value in tv_values:
+                for hessian_weight_value in hessian_values:
+                    run_dir = args.output / (
+                        f"{_weight_label('l1', l1_weight)}_"
+                        f"{_weight_label('tv', tv_weight_value)}_"
+                        f"{_weight_label('hessian', hessian_weight_value)}"
+                    )
+                    params = make_warm_start_params(l1_weight, tv_weight_value, hessian_weight_value)
+                    prefix = (
+                        f"[warm sweep {sweep_index + 1}/{total} l1={l1_weight:g} "
+                        f"tv={tv_weight_value:g} hessian={hessian_weight_value:g}] "
+                    )
+                    warm_sequence, warm_history, warm_info = compute_l1_tv_warm_start(
+                        params,
+                        progress_prefix=prefix,
+                    )
+                    run_dir.mkdir(parents=True, exist_ok=True)
+                    np.savez_compressed(
+                        run_dir / "warm_start.npz",
+                        warm_start=warm_sequence,
+                        warm_start_history=json.dumps([entry.__dict__ for entry in warm_history]),
+                        warm_start_info=json.dumps(warm_info),
+                    )
+                    if args.save_pngs:
+                        save_frame_pngs(warm_sequence, run_dir / "frames", prefix="warm")
+
+                    image_metrics: dict[str, object] | None = None
+                    if ground_truth is not None:
+                        image_metrics = reconstruction_metric_report(
+                            warm_sequence,
+                            ground_truth,
+                            normalization=args.metric_normalization,
+                            total_flux=args.metric_total_flux,
+                            stge_lambda=args.stge_lambda,
+                        )
+                    fourier_metrics = fourier_chi2_report(warm_sequence, data_terms)
+                    metrics_payload: dict[str, object] = {
+                        "mode": "l1_tv_hessian_warm_start_sweep",
+                        "warm_start_info": warm_info,
+                        "image_metrics": image_metrics,
+                        "fourier_metrics": fourier_metrics,
+                    }
+                    (run_dir / "warm_start_metrics.json").write_text(
+                        json.dumps(metrics_payload, indent=2),
+                        encoding="utf-8",
+                    )
+
+                    row = {
+                        "sweep_index": sweep_index,
+                        "warm_start_l1_weight": float(l1_weight),
+                        "warm_start_tv_weight": float(tv_weight_value),
+                        "warm_start_hessian_weight": float(hessian_weight_value),
+                        "warm_start_initialization": warm_info.get("initialization", {}).get("warm_start_initialization") if isinstance(warm_info.get("initialization"), dict) else None,
+                        "warm_start_initial_image": warm_info.get("initialization", {}).get("warm_start_initial_image") if isinstance(warm_info.get("initialization"), dict) else None,
+                        "warm_start_initial_scale_mode": warm_info.get("initialization", {}).get("warm_start_initial_scale_mode") if isinstance(warm_info.get("initialization"), dict) else None,
+                        "output_dir": str(run_dir),
+                        "warm_start_mean_frame_nrmse": None if image_metrics is None else image_metrics.get("mean_frame_nrmse"),
+                        "warm_start_mean_ssim": None if image_metrics is None else image_metrics.get("mean_ssim"),
+                        "warm_start_stge": None if image_metrics is None else image_metrics.get("stge"),
+                        "warm_start_stge_temporal": None if image_metrics is None else image_metrics.get("stge_temporal"),
+                        "warm_start_fourier_reduced_chi2": fourier_metrics.get("fourier_reduced_chi2"),
+                        "warm_start_fourier_chi2": fourier_metrics.get("fourier_chi2"),
+                        "warm_start_final_objective": warm_info.get("final_mean_objective"),
+                        "warm_start_final_data": warm_info.get("final_mean_data"),
+                        "warm_start_final_l1": warm_info.get("final_mean_l1"),
+                        "warm_start_final_tv": warm_info.get("final_mean_tv"),
+                        "warm_start_final_hessian": warm_info.get("final_mean_hessian"),
+                        "warm_start_final_relative_change": warm_info.get("final_mean_relative_change"),
+                        "warm_start_final_step_size": warm_info.get("final_mean_step_size"),
+                    }
+                    rows.append(row)
+                    sweep_index += 1
+        sweep_json, sweep_csv = _write_warm_start_sweep_outputs(args.output, rows)
+        print(json.dumps({"warm_start_sweep_summary_json": str(sweep_json), "warm_start_sweep_summary_csv": str(sweep_csv), "runs": rows}, indent=2))
+        return 0
+
     initialization_dir = args.initialization or args.static or DEFAULT_INITIALIZATION
-    background_dir = args.background or initialization_dir
-    reference_dir = args.reference
 
     fallback_scale_mode = args.static_scale_mode or "per_frame"
     initialization_scale_mode = args.initialization_scale_mode or fallback_scale_mode
@@ -325,21 +659,31 @@ def main(argv: list[str] | None = None) -> int:
     reference_scale_mode = args.reference_scale_mode or initialization_scale_mode
 
     normalize_initialization = not (args.no_normalize_static_images or args.no_normalize_initialization_images)
-    initialization_sequence, initialization_paths, initialization_scale_info = _load_and_calibrate_sequence(
-        initialization_dir,
-        frame_indices=frame_indices,
-        max_frames=args.max_frames,
-        normalize_images=normalize_initialization,
-        data_terms=data_terms,
-        scale_mode=initialization_scale_mode,
-    )
+    if args.l1_tv_warm_start:
+        warm_params = make_warm_start_params(args.warm_start_l1_weight, args.warm_start_tv_weight, args.warm_start_hessian_weight)
+        initialization_sequence, warm_start_history, warm_start_info = compute_l1_tv_warm_start(warm_params)
+        initialization_paths: list[Path] = []
+        initialization_scale_info = warm_start_info
+    else:
+        initialization_sequence, initialization_paths, initialization_scale_info = _load_and_calibrate_sequence(
+            initialization_dir,
+            frame_indices=frame_indices,
+            max_frames=args.max_frames,
+            normalize_images=normalize_initialization,
+            data_terms=data_terms,
+            scale_mode=initialization_scale_mode,
+        )
+        warm_start_history = []
+        warm_start_info = None
     if initialization_sequence.shape[0] != len(observations):
         raise ValueError("initialization frames and observation frames must have the same count")
 
-    if Path(background_dir).resolve() == Path(initialization_dir).resolve() and background_scale_mode == initialization_scale_mode:
+    background_dir = args.background
+    if background_dir is None:
         background_sequence = initialization_sequence
         background_paths = initialization_paths
         background_scale_info = initialization_scale_info
+        background_source = "l1_tv_warm_start" if args.l1_tv_warm_start else str(initialization_dir)
     else:
         background_sequence, background_paths, background_scale_info = _load_and_calibrate_sequence(
             background_dir,
@@ -349,10 +693,14 @@ def main(argv: list[str] | None = None) -> int:
             data_terms=data_terms,
             scale_mode=background_scale_mode,
         )
+        background_source = str(background_dir)
     background = make_background(background_sequence, BackgroundMode(args.background_mode))
 
+    reference_dir = args.reference
     data_weight = _resolve_weight(args.data_weight, normal=1.0, postprocess=0.0, enabled=args.reference_postprocess)
     tv_weight = _resolve_weight(args.tv_weight, normal=1e-5, postprocess=0.0, enabled=args.reference_postprocess)
+    hessian_weight = _resolve_weight(args.hessian_weight, normal=0.0, postprocess=0.0, enabled=args.reference_postprocess)
+    image_l1_weight = _resolve_weight(args.image_l1_weight, normal=0.0, postprocess=0.0, enabled=args.reference_postprocess)
     background_weight = _resolve_weight(args.background_weight, normal=1e-4, postprocess=0.0, enabled=args.reference_postprocess)
     residual_mass_weight = _resolve_weight(args.residual_mass_weight, normal=1e-6, postprocess=0.0, enabled=args.reference_postprocess)
     reference_weight = _resolve_weight(args.reference_weight, normal=0.0, postprocess=1.0, enabled=args.reference_postprocess)
@@ -377,12 +725,6 @@ def main(argv: list[str] | None = None) -> int:
                 scale_mode=reference_scale_mode,
             )
 
-    ground_truth, ground_truth_paths = load_ground_truth_sequence(
-        args.ground_truth,
-        frame_indices,
-        shape=grid.shape,
-    )
-
     sweep_weights = _parse_transport_weight_sweep(args.sweep_transport_weights)
     sweep_mode = sweep_weights is not None
     weights_to_run = sweep_weights if sweep_weights is not None else [transport_weight]
@@ -398,6 +740,8 @@ def main(argv: list[str] | None = None) -> int:
             transport_method=TransportMethod(args.transport_method),
             data_weight=data_weight,
             tv_weight=tv_weight,
+            hessian_weight=hessian_weight,
+            image_l1_weight=image_l1_weight,
             background_weight=background_weight,
             reference_weight=reference_weight,
             residual_mass_weight=residual_mass_weight,
@@ -432,6 +776,8 @@ def main(argv: list[str] | None = None) -> int:
                 f"data={latest.data:.3e} | "
                 f"ref={latest.reference:.3e} | "
                 f"tv={latest.tv:.3e} | "
+                f"hessian={latest.hessian:.3e} | "
+                f"l1={latest.image_l1:.3e} | "
                 f"transport={latest.transport:.3e} | "
                 f"r={latest.primal_residual:.3e}/{latest.eps_primal:.3e} | "
                 f"s={latest.dual_residual:.3e}/{latest.eps_dual:.3e} | "
@@ -470,7 +816,7 @@ def main(argv: list[str] | None = None) -> int:
             print(
                 "Weights | "
                 f"data={params.data_weight:g} | ref={params.reference_weight:g} | "
-                f"tv={params.tv_weight:g} | background={params.background_weight:g} | "
+                f"tv={params.tv_weight:g} | hessian={params.hessian_weight:g} | image_l1={params.image_l1_weight:g} | background={params.background_weight:g} | "
                 f"residual_mass={params.residual_mass_weight:g} | transport={params.transport_weight:g} | "
                 f"source={params.source_weight:g}",
                 flush=True,
@@ -590,7 +936,11 @@ def main(argv: list[str] | None = None) -> int:
                 "ground_truth_files": [str(path) for path in ground_truth_paths],
                 "initialization_scale_info": initialization_scale_info,
                 "background_scale_info": background_scale_info,
+                "background_source": background_source,
                 "reference_scale_info": reference_scale_info,
+                "l1_tv_warm_start": bool(args.l1_tv_warm_start),
+                "warm_start_info": warm_start_info,
+                "warm_start_history": [entry.__dict__ for entry in warm_start_history],
                 "automatic_metrics": automatic_metrics,
                 **metric_files,
                 **sweep_extra,
@@ -598,13 +948,14 @@ def main(argv: list[str] | None = None) -> int:
         )
         if args.save_pngs:
             save_frame_pngs(state.image_state.image, run_output_dir / "frames", prefix="uot")
+        warm_start_source = None if warm_start_info is None else str(warm_start_info.get("source", "l1_tv_warm_start"))
         config_extra = {
             "mode": "reference_postprocess" if args.reference_postprocess else "joint_reconstruction",
             "reference_postprocess": args.reference_postprocess,
             "background_mode": args.background_mode,
-            "initialization": str(initialization_dir),
-            "background": str(background_dir),
-            "reference": None if reference_sequence is None else str(reference_dir or initialization_dir),
+            "initialization": warm_start_source if args.l1_tv_warm_start else str(initialization_dir),
+            "background": background_source,
+            "reference": None if reference_sequence is None else (warm_start_source if args.l1_tv_warm_start and reference_dir is None else str(reference_dir or initialization_dir)),
             "initialization_scale_mode": initialization_scale_mode,
             "background_scale_mode": background_scale_mode,
             "reference_scale_mode": reference_scale_mode,
@@ -613,6 +964,8 @@ def main(argv: list[str] | None = None) -> int:
             "metric_normalization": args.metric_normalization,
             "metric_total_flux": args.metric_total_flux,
             "stge_lambda": args.stge_lambda,
+            "l1_tv_warm_start": bool(args.l1_tv_warm_start),
+            "warm_start_info": warm_start_info,
             "automatic_metrics": automatic_metrics,
             **metric_files,
             "max_frames": args.max_frames,
@@ -645,6 +998,8 @@ def main(argv: list[str] | None = None) -> int:
             "data": float(latest.data),
             "reference": float(latest.reference),
             "tv": float(latest.tv),
+            "hessian": float(latest.hessian),
+            "image_l1": float(latest.image_l1),
             "transport": float(latest.transport),
             "initialization_mean_frame_nrmse": _get_nested_scalar(automatic_metrics, "initialization_metrics", "mean_frame_nrmse"),
             "post_uot_mean_frame_nrmse": _get_nested_scalar(automatic_metrics, "post_uot_metrics", "mean_frame_nrmse"),

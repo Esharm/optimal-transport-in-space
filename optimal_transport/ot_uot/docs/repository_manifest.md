@@ -26,6 +26,7 @@ This manifest classifies each standalone module after Phase 5 verification.
 | `transport.pairwise` | Mathematically redesigned | Shape/interface and ADMM integration tested |
 | `transport.global_velocity` | Mathematically redesigned | Shape/interface and ADMM integration tested |
 | `regularizers.tv` | Lightly modified | Exercised by image update and integration tests |
+| `regularizers.hessian` | New support | Hessian adjoint, constant-image seminorm, CLI, and ADMM integration tested |
 | `regularizers.image_residual_update` | Mathematically redesigned | Exact coupled subproblem exercised by ADMM tests |
 | `optimization.admm_state` | New support | Imported and exercised by solver tests |
 | `optimization.objective` | Mathematically redesigned | Objective/residual diagnostics tested |
@@ -39,7 +40,7 @@ This manifest classifies each standalone module after Phase 5 verification.
 | `evaluation.metrics` | Lightly modified | Metric summary exercised in pipeline test |
 | `visualization.outputs` | Lightly modified | Frame PNG and comparison strip output tested |
 | `drivers.run_reconstruction` | Lightly modified | Pairwise and global CLI smoke tested |
-| `tests.*` | New support | 20 tests passing |
+| `tests.*` | New support | 29 tests passing |
 
 ## Bugs Corrected During Phase 5
 
@@ -63,7 +64,7 @@ This manifest classifies each standalone module after Phase 5 verification.
 flowchart TD
     IO["io: observations, static, config"] --> Core["core: variables, visibility, operators"]
     Core --> Transport["transport: UOT paths"]
-    Core --> Regularizers["regularizers: TV and image update"]
+    Core --> Regularizers["regularizers: TV, Hessian, and image update"]
     Transport --> Optimization["optimization: ADMM solver"]
     Regularizers --> Optimization
     Optimization --> Results["io.results"]
@@ -82,5 +83,5 @@ to `regularizers.image_residual_update`, `optimization.objective`, and
 features remain available; when the toggle is not used, defaults match the
 previous joint reconstruction behavior.
 
-Verification status: 20 tests passing, including a CLI smoke test for
+Verification status: 29 tests passing, including a CLI smoke test for
 reference-postprocessing.
